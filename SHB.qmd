@@ -12,8 +12,7 @@ format:
     number-sections: true
     code-copy: true
 ---
-# Socialt hållbara bostadsområden (SHB)
-## Introduktion
+# Introduktion
 
 SHB (Socialt hållbara bostadsområden) är en områdesindelning som används för att följa upp och analysera bostadsområden ur ett socialt hållbarhetsperspektiv.
 SHB‑områdena definieras och namnges manuellt av kommunerna, och kan variera i geografisk avgränsning. I vissa fall kan kommuner  välja att samla glesbygd eller landsbygdsområden till större områden för att uppnå tillräcklig befolkningsstorlek för statistik och uppföljning.
@@ -23,36 +22,36 @@ Viktiga egenskaper hos SHB:
 1. Geometrier tas fram manuellt
 1. Namn och avgränsning bestäms lokalt
 
-## Process
+# Process
 
 Nycklar mellan SHB och NYKO går att finna i `G:\Uppföljning och Utvärdering\shb`.
 Insamlade NYKO sparas och går att finna i `G:\Samhällsanalys\GIS\grundkartor\nyko` *se till att aktuella områden läses in vid bearbetning av datan*
 
-### Översikt
+## Översikt
 
 1.  Samla in SHB områden
 2.  Skapa polygonlager med SHB områden
 
-## Insamling av områden
+# Insamling av områden
 
 En del SHB områden utgår från kommunernas NYKO-indelning. Tidigare användes uteslutande NYKO och alla SHB områden var således kopplade till en NYKO-kod. Det är upp till kommunerna om de vill utgå från NYKO eller om de själva vill skapa geografiska indelningar som motsvarar SHB geom att själva rita ut gränserna.
 
 De områden som kommunerna skapar önskar vi levererade i geopackage-filer. Om vi redan har NYKO och kommunen önskar utgå från samma NYKO-indelning fungerar det även om kommunen skcikar en nyckel i förslagsvis excelformat med NYKO och SHB kopplade.
 
-## Kriterier
+# Kriterier
 
 
-## Sammanställning av områden
+# Sammanställning av områden
 
 Områdena sammanställs till en gpkg som sedan skrivs till databaen. När alla områden slås ihop är det viktigt att kontrollera koordinatsystemen då antingen NYKO eller egna områden iband levereras med olika koordinatsystem. Sammanställ alla till sweref99.
 
-### NYKO - SHB
+## NYKO - SHB
 
-### SHB områden som gpkg filer
+## SHB områden som gpkg filer
 ```{r}
 #| echo: false
 ```
-### Resultat
+## Resultat
 
 Polygoner med SHB områden skriv till schema
 ```
@@ -67,7 +66,7 @@ postgis_databas_skriv_med_metadata(
 
 ```
 
-## Koppling till borutor
+# Koppling till borutor
 ```
 postgis_skapa_omradesnyckel_tabell_vy(
   con = uppkoppling_adm("geodata"),
