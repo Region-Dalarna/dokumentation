@@ -1,15 +1,15 @@
 project:
   type: website
-output-dir: _site
+  output-dir: _site
 
 website:
   title: "Dokumentation – Samhällsanalys"
-search: true
-page-footer:
-  center: "Samhällsanalys, Region Dalarna"
+  search: true
+  page-footer:
+    center: "Samhällsanalys, Region Dalarna"
 
 format:
   html:
-  theme: cosmo
-css: styles.css
-toc: true
+    theme: cosmo
+    css: [regiondalarna_ruf.css, portal_overrides.css]
+    toc: true
