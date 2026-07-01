@@ -2,7 +2,7 @@
 title: "Region Dalarnas Webb-GIS"
 #subtitle: "Samhällsanalys, Region Dalarna"
 author: "Samhällsanalys"
-date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+date: last-modified
 lang: sv
 format:
   html:

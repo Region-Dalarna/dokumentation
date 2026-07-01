@@ -2,7 +2,7 @@
 title: "Instruktioner för att använda pxweb2-funktioner"
 subtitle: "Datahämtning från PxWebAPI v2"
 author: "Samhällsanalys, Region Dalarna"
-date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+date: last-modified
 lang: sv
 format:
   html:
