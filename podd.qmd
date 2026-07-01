@@ -1,0 +1,27 @@
+---
+  title: "Region Dalarnas Podcast"
+subtitle: "Redaktionellt och tekniskt arbetssätt för podden Läget i Dalarna"
+listing-description: "Hur Samhällsanalys arbetar med podden Läget i Dalarna, både redaktionellt och tekniskt — utrustning, hantering av inspelningar och publicering av nya avsnitt på Spotify."
+author: "Samhällsanalys"
+lang: sv
+format:
+  html:
+  theme: cosmo
+toc: true
+toc-location: left
+toc-depth: 3
+number-sections: true
+code-copy: true
+---
+  
+  # Inledning
+  
+  Denna rapport beskriver hur Samhällsanalys inom Region Dalarna arbetar med podden Läget i Dalarna. Nedan beskrivs hur vi arbetar redaktionellt men också hur vi arbetar rent tekniskt med podden. Vilken utrustning har vi? Hur hanterar vi utrustningen? Hur lägger vi upp nya avsnitt på Spotify? Etcetera.
+
+# Rubrik
+
+Text
+
+## Underrubrik
+
+Text

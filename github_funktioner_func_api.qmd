@@ -1,0 +1,469 @@
+---
+title: "GitHub-funktioner i func_API.R"
+subtitle: "Referens för github_-funktionerna: lista repos, commit/push, pull och klona repon från R"
+listing-description: "Referens för func_API.R:s github_-funktioner för att interagera med GitHub direkt från R — lista repositories och filer, kontrollera lokal status, committa/pusha, pulla och klona repon, med separata varianter för Region-Dalarna och Analytikernätverket."
+author: "Samhällsanalys"
+lang: sv
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Inledning
+
+Filen `func_API.R` innehåller en rad hjälpfunktioner för att interagera med GitHub direkt från R. Funktionerna förenklar vardagliga arbetsuppgifter som att lista repositories och filer, kontrollera status på lokala ändringar, committa och pusha till GitHub samt att klona och hämta hem repos.
+
+Alla funktioner i denna dokumentation börjar med `github_`. Många finns i två varianter: en grundfunktion och en *wrapper* med förvalda inställningar anpassade för **Analytikernätverket** (organisation `Analytikernatverket`, lokal sökväg `c:/gh_an/`) respektive **Region-Dalarna** (organisation `Region-Dalarna`, lokal sökväg `c:/gh/`).
+
+::: {.callout-note}
+## Förutsättning
+Funktionerna förlitar sig på paketen `git2r`, `gert`, `gh`, `httr`, `keyring`, `glue` och `usethis` som läses in i toppen av `func_API.R`. GitHub-token och inloggningsuppgifter hanteras via `keyring` (service-namnen `"github_token"` och `"github"`).
+:::
+::: {.callout-warning}
+## För att kunna köra skripten
+I mappen *g:/skript/* finns filen *lagg_in_github_authentisering_i_r_studio.R* som man behöver gå igenom och fylla i sina användaruppgifter samt lägga in lösenord och tokens på ett säkert sätt i keyring()-paketet för att kunna köra github_-funktionerna.
+:::
+## TL;DR – snabbreferens
+
+**Vanligaste kommandona:**
+
+- Lista repos: `github_lista_repos()`
+- Lista filer i repo: `github_lista_repo_filer("hamta_data")`
+- Kolla status lokalt: `github_status_filer_lokalt_repo("hamta_data")`
+- Commit + push: `github_commit_push("hamta_data", commit_txt = "...")`
+- Pull från GitHub: `github_pull_lokalt_repo_fran_github("hamta_data")`
+- Klona nytt repo lokalt: `github_lagg_till_repo_fran_github("hamta_data")`
+
+Samtliga funktioner ovan är konfigurerade för **Region-Dalarna** som standard. Byt ut med `_analytikernatverket`-varianten för att arbeta mot Analytikernätverkets organisation.
+
+# Lista repositories
+
+Dessa funktioner hämtar en lista över alla publika repositories för en GitHub-användare eller organisation via GitHub REST API.
+
+## `github_lista_repos()`
+
+### Beskrivning
+Hämtar och listar alla repositories för en GitHub-användare eller organisation. Returnerar en tibble med namn, HTML-url och klon-url.
+
+### Parametrar
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `owner` | `"Region-Dalarna"` | GitHub-användarnamn eller organisation vars repos ska listas. |
+| `skriv_ut_reponamn_i_konsol` | `TRUE` | Om `TRUE` skrivs reponamnen ut i konsolen och funktionen returnerar osynligt (`invisible`). Om `FALSE` returneras tibble:n. |
+
+### Exempel
+
+```{r}
+# Lista alla repos för Region-Dalarna (standard)
+github_lista_repos()
+
+# Lista repos för en annan organisation och spara resultatet
+mina_repos <- github_lista_repos(
+  owner = "Analytikernatverket",
+  skriv_ut_reponamn_i_konsol = FALSE
+)
+```
+
+::: {.callout-tip}
+## Tips
+Kör `github_lista_repos()` för att snabbt få en översikt av vilka repos som finns, exempelvis innan du försöker klona ett okänt repo med `github_lagg_till_repo_fran_github()`.
+:::
+
+## `github_lista_repos_analytikernatverket()` {.unnumbered}
+
+### Beskrivning
+Wrapper runt `github_lista_repos()` med standardvärdet `owner = "Analytikernatverket"`. Anropar grundfunktionen med identiska parametrar.
+
+### Parametrar
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `owner` | `"Analytikernatverket"` | GitHub-organisation. Kan ändras om behov finns. |
+| `skriv_ut_reponamn_i_konsol` | `TRUE` | Se grundfunktionen. |
+
+### Exempel
+
+```{r}
+# Lista alla repos i Analytikernätverket
+github_lista_repos_analytikernatverket()
+```
+
+# Lista filer i ett repository
+
+Dessa funktioner listar filer i ett specifikt GitHub-repository. De traverserar rekursivt hela repots mappstruktur och kan producera färdiga `source()`-satser redo att klistra in i ett skript.
+
+## `github_lista_repo_filer()`
+
+### Beskrivning
+Hämtar en lista över alla filer i ett GitHub-repository via GitHub REST API. Mappar traverseras rekursivt. Kan skriva färdiga `source()`-satser till konsol och urklipp.
+
+### Parametrar
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `repo` | `"hamta_data"` | Namnet på det repository vars filer ska listas. |
+| `owner` | `"Region-Dalarna"` | GitHub-användare eller organisation. |
+| `url_vekt_enbart` | `TRUE` | Om `TRUE` returneras bara en vektor med URL:er till filerna (när `skriv_source_konsol = FALSE`). |
+| `skriv_source_konsol` | `TRUE` | Om `TRUE` skrivs färdiga `source("url")`-satser ut i konsolen. |
+| `till_urklipp` | `TRUE` | Om `TRUE` och `skriv_source_konsol = TRUE`, kopieras source-satserna automatiskt till urklipp. |
+| `filter` | `NA` | Sökord för att filtrera filnamn. Kan vara ett enskilt ord eller en vektor (OR-logik). Använd `&` för AND-logik och `!` i början för negation. |
+| `keyring_github_token` | `"github_token"` | Service-namn i `keyring` för GitHub-token. Används för autentisering mot privata repos. |
+| `icke_source_repo` | `FALSE` | Om `TRUE` returneras filnamn och URL men inte source-satser. Lämpligt för repos som inte innehåller R-skript. |
+| `skriv_ppt_lista` | `FALSE` | Om `TRUE` genereras kodrader för att fylla en PPT-lista (används i PowerPoint-rapporter). |
+| `lista_ej_systemfiler` | `TRUE` | Om `TRUE` filtreras LICENSE och dolda filer (börjar med `.`) bort. |
+| `path` | `""` | Undermapp att lista inom repot. Lämna tomt för att lista från roten. Används internt vid rekursiv traversering. |
+
+### Exempel
+
+```{r}
+# Skriv source()-satser för alla filer i "hamta_data" till konsol + urklipp
+github_lista_repo_filer("hamta_data")
+
+# Filtrera på filer som innehåller "befolkning" men inte "prognos"
+github_lista_repo_filer(
+  repo   = "hamta_data",
+  filter = "befolkning&!prognos"
+)
+
+# Hämta bara URL-vektorn utan att skriva till konsolen
+url_lista <- github_lista_repo_filer(
+  repo                = "hamta_data",
+  skriv_source_konsol = FALSE,
+  till_urklipp        = FALSE
+)
+
+# Hämta en tibble med filnamn och URL (utan source-kolumn)
+fil_df <- github_lista_repo_filer(
+  repo                = "hamta_data",
+  url_vekt_enbart     = FALSE,
+  skriv_source_konsol = FALSE,
+  till_urklipp        = FALSE
+)
+```
+
+::: {.callout-note}
+## Om GitHub-token
+Funktionen försöker alltid göra en publik förfrågan först. Om en `github_token`-post finns i `keyring` används den automatiskt. För privata repositories krävs token.
+:::
+
+::: {.callout-warning}
+## Filterlogik
+Flera sökord med OR: `filter = c("befolkning", "arbete")`. AND-logik med `&`: `filter = "befolkning&kommun"`. Negation med `!`: `filter = "!prognos"`.
+:::
+
+## `github_lista_repo_filer_analytikernatverket()` {.unnumbered}
+
+### Beskrivning
+Wrapper runt `github_lista_repo_filer()` med `owner = "Analytikernatverket"` som standard. Alla övriga parametrar är identiska.
+
+### Exempel
+
+```{r}
+# Lista alla filer i "hamta_data" på Analytikernätverkets GitHub
+github_lista_repo_filer_analytikernatverket("hamta_data")
+
+# Med filter
+github_lista_repo_filer_analytikernatverket(
+  repo   = "hamta_data",
+  filter = "sysselsattning"
+)
+```
+
+::: {.callout-tip}
+## Genvägar
+Det finns även kortkommandon definierade i `func_API.R`:
+
+- `gh_dia(filter)` – listar filer i "diagram"-repot (Region-Dalarna)
+- `gh_hamta_analytikernatverket(filter)` – listar "hamta_data" på Analytikernätverket
+- `gh_ppt(filter)` – listar "diagram"-repot med PPT-listformat
+:::
+
+# Status på lokala filer
+
+Dessa funktioner visar statusen för ett lokalt git-repository: nya ospårade filer, ändrade filer och filer som är stage:ade men ännu inte push:ade till GitHub.
+
+## `github_status_filer_lokalt_repo()`
+
+### Beskrivning
+Visar status på filer i ett lokalt git-repository. Skriver ett läsbart meddelande till konsolen som beskriver nya, ändrade och stage:ade filer.
+
+### Parametrar
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `repo` | `"hamta_data"` | Namnet på det lokala repositoryt (undermapp i `sokvag_lokal_repo`). |
+| `sokvag_lokal_repo` | `"c:/gh/"` | Lokal rotsökväg där repos lagras lokalt. Den fullständiga sökvägen blir `sokvag_lokal_repo + repo`. |
+
+### Exempel
+
+```{r}
+# Kolla status för "hamta_data" (standard)
+github_status_filer_lokalt_repo()
+
+# Kolla status för ett specifikt repo på annan sökväg
+github_status_filer_lokalt_repo(
+  repo              = "diagram",
+  sokvag_lokal_repo = "c:/gh/"
+)
+```
+
+Funktionen skriver ett meddelande i stil med:
+
+```
+Det finns 2 nya filer i c:/gh/hamta_data
+Dessa är:
+hamta_befolkning_ny.R
+hamta_arbetsloshet.R
+
+3 filer i c:/gh/hamta_data har ändrats, och dessa är:
+func_diagram.R
+func_text.R
+README.md
+```
+
+::: {.callout-note}
+## Ingen retur
+Funktionen returnerar ingenting, den skriver enbart till konsolen via `cat()`.
+:::
+
+## `github_status_filer_lokalt_repo_analytikernatverket()` {.unnumbered}
+
+### Beskrivning
+Wrapper med standardvärdet `sokvag_lokal_repo = "c:/gh_an/"` för Analytikernätverkets lokala repostruktur.
+
+### Exempel
+
+```{r}
+# Kolla status för "hamta_data" i Analytikernätverkets lokala mapp
+github_status_filer_lokalt_repo_analytikernatverket("hamta_data")
+```
+
+# Commit och push till GitHub
+
+Dessa funktioner hanterar hela commit-push-cykeln: de identifierar nya och ändrade filer, skapar ett commit-meddelande, gör eventuellt en pull-first för att undvika konflikter, och pushar sedan till GitHub.
+
+## `github_commit_push()`
+
+### Beskrivning
+Committar och pushar alla nya och ändrade filer i ett lokalt git-repository till GitHub. Skapar automatiskt ett commit-meddelande baserat på vilka filer som förändrats (om `commit_txt` inte anges). Skyddar mot parallell körning via en temporär låsfil.
+
+### Parametrar
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `repo` | `"hamta_data"` | Namnet på repositoryt (undermapp i `sokvag_lokal_repo`). |
+| `commit_txt` | `NA` | Commit-meddelande. Om `NA` genereras ett meddelande automatiskt utifrån vilka filer som lagts till, ändrats eller tagits bort. |
+| `sokvag_lokal_repo` | `"c:/gh/"` | Rotsökväg för lokala repos. |
+| `repo_org` | `"Region-Dalarna"` | GitHub-organisation. Används för att hämta fillistan från GitHub vid jämförelse. |
+| `fran_rmarkdown` | `FALSE` | Om `TRUE` används `commit_txt` rakt av utan att hämta fillistan från GitHub. Lämpligt när funktionen anropas från ett R Markdown-dokument. |
+| `pull_forst` | `TRUE` | Om `TRUE` görs en `git pull` innan commit och push, vilket minskar risken för konflikter. |
+
+### Exempel
+
+```{r}
+# Commit och push med automatiskt commit-meddelande
+github_commit_push("hamta_data")
+
+# Med ett eget commit-meddelande
+github_commit_push(
+  repo       = "hamta_data",
+  commit_txt = "Uppdaterat befolkningsskript med ny åldersindelning"
+)
+
+# Mot Analytikernätverkets organisation
+github_commit_push(
+  repo              = "hamta_data",
+  sokvag_lokal_repo = "c:/gh_an/",
+  repo_org          = "Analytikernatverket",
+  commit_txt        = "Ny funktion för att hämta folkhälsodata"
+)
+```
+
+::: {.callout-warning}
+## Kräver keyring
+Push använder token från `keyring` (service `"github_token"`). Pull använder inloggning från service `"github"`. Se till att dessa är korrekt konfigurerade innan du kör funktionen.
+:::
+
+::: {.callout-note}
+## Ingenting att pusha
+Om inga nya eller ändrade filer finns i repot skriver funktionen ut ett meddelande i konsolen och avslutar utan att göra något.
+:::
+
+## `github_commit_push_analytikernatverket()` {.unnumbered}
+
+### Beskrivning
+Wrapper med standardvärden `sokvag_lokal_repo = "c:/gh_an/"` och `repo_org = "Analytikernatverket"`.
+
+### Exempel
+
+```{r}
+# Commit och push till Analytikernätverkets repo
+github_commit_push_analytikernatverket(
+  repo       = "hamta_data",
+  commit_txt = "Fixat bugg i hamta_arbetsloshet.R"
+)
+```
+
+# Hämta hem ändringar från GitHub (pull)
+
+Dessa funktioner kör `git pull` på ett eller flera lokala repos för att synka dem med GitHub.
+
+## `github_pull_lokalt_repo_fran_github()`
+
+### Beskrivning
+Kör `git pull` på ett eller flera lokala repositories. Skriver status för varje repo till konsolen. Om `repo = "*"` uppdateras alla repos i `sokvag_lokal_repo`.
+
+### Parametrar
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `repo` | `"hamta_data"` | Namn på ett repo, en vektor med reponamn, eller `"*"` för att uppdatera alla repos i mappen. |
+| `sokvag_lokal_repo` | `"c:/gh/"` | Lokal rotsökväg där repos lagras. |
+| `repo_org` | `"Region-Dalarna"` | GitHub-organisation (används inte aktivt men skickas med som parameter). |
+
+### Exempel
+
+```{r}
+# Hämta senaste versionen av "hamta_data"
+github_pull_lokalt_repo_fran_github("hamta_data")
+
+# Uppdatera flera repos på en gång
+github_pull_lokalt_repo_fran_github(c("hamta_data", "diagram", "kartor"))
+
+# Uppdatera ALLA repos i c:/gh/
+github_pull_lokalt_repo_fran_github("*")
+```
+
+::: {.callout-tip}
+## God praxis
+Kör alltid `github_pull_lokalt_repo_fran_github()` innan du börjar arbeta med ett repo för att säkerställa att du har den senaste versionen från GitHub.
+:::
+
+## `github_pull_lokalt_repo_fran_github_analytikernatverket()` {.unnumbered}
+
+### Beskrivning
+Wrapper med standardvärdet `sokvag_lokal_repo = "c:/gh_an/"` och `repo_org = "Analytikernatverket"`.
+
+### Exempel
+
+```{r}
+# Pull från Analytikernätverkets "hamta_data"
+github_pull_lokalt_repo_fran_github_analytikernatverket("hamta_data")
+```
+
+# Klona ett repo från GitHub lokalt
+
+Dessa funktioner klonar ett GitHub-repository till din lokala dator och skapar vid behov ett R-projekt (`.Rproj`-fil) i samma mapp.
+
+## `github_lagg_till_repo_fran_github()`
+
+### Beskrivning
+Klonar ett repository från GitHub till en lokal mapp med hjälp av `git clone`. Kontrollerar att repot finns på GitHub innan kloning påbörjas. Skapar en `.Rproj`-fil om en sådan saknas och öppnar eventuellt projektet i RStudio.
+
+### Parametrar
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `repo_namn` | – | **Obligatorisk.** Bara repo-namnet, inte hela URL:en. T.ex. `"hamta_data"` eller `"kartor"`. |
+| `repo_org` | `"Region-Dalarna"` | GitHub-organisation eller användare. |
+| `repo_lokalt_mapp` | `"c:/gh/"` | Lokal rotsökväg. Repot klonas till `repo_lokalt_mapp/repo_namn`. Mappen skapas om den inte finns. |
+| `rprojekt_oppna` | `FALSE` | Om `TRUE` öppnas det klonade projektet direkt i RStudio efter att kloning är klar. |
+
+### Exempel
+
+```{r}
+# Klona "hamta_data" till c:/gh/hamta_data/
+github_lagg_till_repo_fran_github("hamta_data")
+
+# Klona och öppna projektet i RStudio direkt
+github_lagg_till_repo_fran_github(
+  repo_namn      = "diagram",
+  rprojekt_oppna = TRUE
+)
+
+# Klona från en annan organisation till annan mapp
+github_lagg_till_repo_fran_github(
+  repo_namn        = "kartor",
+  repo_org         = "Analytikernatverket",
+  repo_lokalt_mapp = "c:/gh_an/"
+)
+```
+
+::: {.callout-note}
+## Kontroll innan kloning
+Funktionen verifierar att repot faktiskt existerar på GitHub med ett HEAD-anrop. Om repot saknas visas ett felmeddelande med hänvisning till `github_lista_repos()` för att se tillgängliga repos.
+:::
+
+::: {.callout-warning}
+## Kräver Git i PATH
+Funktionen använder systemkommandot `git clone`. Git måste vara installerat och tillgängligt i systemets PATH, annars avbryts körningen med ett felmeddelande.
+:::
+
+## `github_lagg_till_repo_fran_github_analytikernatverket()` {.unnumbered}
+
+### Beskrivning
+Wrapper med standardvärden `repo_org = "Analytikernatverket"` och `repo_lokalt_mapp = "c:/gh_an/"`.
+
+### Exempel
+
+```{r}
+# Klona "hamta_data" från Analytikernätverket till c:/gh_an/
+github_lagg_till_repo_fran_github_analytikernatverket("hamta_data")
+```
+
+# Sammanhang och typiskt arbetsflöde
+
+Nedan visas hur `github_*`-funktionerna hänger ihop i ett typiskt arbetsflöde för att uppdatera ett R-skript i ett delat repo.
+
+## Hämta, arbeta och pusha
+
+```{r}
+# ── Steg 1: Se vilka repos som finns ───────────────────────
+github_lista_repos()
+
+# ── Steg 2: Klona repot (första gången) ─────────────────────
+github_lagg_till_repo_fran_github("hamta_data")
+
+# ── Steg 3: Hämta senaste versionen innan du börjar arbeta ──
+github_pull_lokalt_repo_fran_github("hamta_data")
+
+# ── Steg 4: Se vilka filer som finns i repot ────────────────
+github_lista_repo_filer("hamta_data", filter = "befolkning")
+
+# ... gör dina ändringar i skripten lokalt ...
+
+# ── Steg 5: Kontrollera vad som ändrats ─────────────────────
+github_status_filer_lokalt_repo("hamta_data")
+
+# ── Steg 6: Commit och push till GitHub ─────────────────────
+github_commit_push(
+  repo       = "hamta_data",
+  commit_txt = "Uppdaterat befolkningsskript med ny variabel för åldersgrupp"
+)
+```
+
+## Sammanfattning av funktionerna
+
+| Funktion | Syfte | AN-wrapper finns |
+|----------|-------|------------------|
+| `github_lista_repos()` | Lista alla repos för en organisation | ✓ |
+| `github_lista_repo_filer()` | Lista filer i ett repo, generera source()-satser | ✓ |
+| `github_status_filer_lokalt_repo()` | Visa status på lokala git-ändringar | ✓ |
+| `github_commit_push()` | Committa och pusha ändringar till GitHub | ✓ |
+| `github_pull_lokalt_repo_fran_github()` | Hämta senaste versionen från GitHub | ✓ |
+| `github_lagg_till_repo_fran_github()` | Klona ett repo lokalt (första gången) | ✓ |
+
+::: {.callout-tip}
+## Analytikernätverket vs Region-Dalarna
+Alla grundfunktioner pekar som standard mot `Region-Dalarna` och den lokala sökvägen `c:/gh/`. Använd `_analytikernatverket`-varianten av respektive funktion för att arbeta mot `Analytikernatverket` med sökvägen `c:/gh_an/`, utan att behöva ange dessa parametrar manuellt varje gång.
+:::
