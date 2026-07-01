@@ -3,7 +3,8 @@ title: "Dokumentation – Samhällsanalys"
 description: "Teknisk dokumentation för Samhällsanalys, Region Dalarna"
 listing:
   contents: "*.qmd"
-  exclude: "index.qmd"
+  exclude:
+    - "index.qmd"
   type: table
   fields: [title, description, date]
   sort: "date desc"
