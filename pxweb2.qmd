@@ -43,7 +43,7 @@ Det här dokumentet är skrivet för användare som vill hämta statistik från 
 
 Läs [TL;DR](#tldr) och [Hämta data med pxweb2_hamta_data](#hamta-data-med-pxweb2_hamta_data). Det räcker för de flesta vanliga uttag.
 
-### 🔎 Du vill förstå vilka variabler och värden en tabell innehåller
+### 🔎 Du vill förstå vilka variabler och värden en tabell innehåller 
 
 Läs [Utforska tabeller och metadata](#utforska-tabeller-och-metadata). Där visas hur du söker tabeller, hämtar metadata och listar variabler och värden.
 
