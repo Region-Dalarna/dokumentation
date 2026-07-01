@@ -52,7 +52,7 @@
 
 /* ---- 1b. TOC-LOGGA OCH TOC-PANEL (enskilda dokumentsidor) ---- */
 .toc-logo-header {
-  background: #c4c4c4;
+  background: var(--rd-blue-deep);
   border-radius: 8px 8px 0 0;
   padding: 10px 14px;
   margin-bottom: 0;
