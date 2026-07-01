@@ -122,7 +122,7 @@ tabeller_df <- pxweb2_search_tables(
 
 När du vet tabell-id kan du hämta metadata:
 
-```{r eval=TRUE}
+```{r eval=FALSE}
 meta <- pxweb2_meta("TAB6568")
 ```
 
