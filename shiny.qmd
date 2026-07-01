@@ -117,6 +117,21 @@ git config --global user.name "Förnamn Efternamn"
 git config --global user.email "din.epost@regiondalarna.se"
 ```
 
+**Utöver detta** behöver `github_commit_push()` en giltig GitHub-nyckel i `keyring`, sparad under service-namnet `github_token`. Den används för **både** `git pull` och `git push` mot GitHub. Sätt den en gång per dator:
+
+```r
+keyring::key_set("github_token", username = "ditt-github-anvandarnamn")
+# klistra in ett Personal Access Token (classic) med scope repo (och workflow
+# om du någonsin pushar ändringar i .github/workflows/-filer) när du blir tillfrågad
+```
+
+Saknas nyckeln stoppar funktionen numera med ett tydligt felmeddelande direkt, istället för att krascha djupt inne i pull- eller push-steget.
+
+:::{.callout-warning}
+## Kom ihåg — privata repon kräver riktig autentisering
+`github_commit_push()` har historiskt även kunnat luta sig mot en separat, äldre nyckel under service-namnet `github` för `git pull`. Den nyckeln har visat sig i vissa fall vara ogiltig eller sakna rätt behörighet — vilket ändå inte märktes, eftersom `pull` mot **publika** repon lyckas oavsett om autentiseringen är giltig. Först vid pull mot ett **privat** repo (t.ex. en dokumentationsportal skapad med `webbsida_med_portal_skapa_med_github_repo()`) slog felet igenom, med det kryptiska felmeddelandet `too many redirects or authentication replays`. Funktionen använder numera `github_token` konsekvent för både pull och push, så detta ska inte längre inträffa — men om felet ändå dyker upp, kontrollera att `github_token` i keyring verkligen innehåller ett giltigt Personal Access Token med `repo`-scope.
+:::
+
 ## En kort introduktion till Shiny
 
 **Shiny** är ett ramverk i R för att skapa **interaktiva rapporter och webbappar**. Användaren kan göra val (t.ex. via menyer, knappar eller reglage) och direkt se hur tabeller, diagram eller kartor uppdateras.
