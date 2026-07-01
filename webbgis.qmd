@@ -1,0 +1,412 @@
+---
+title: "Region Dalarnas Webb-GIS"
+#subtitle: "Samhällsanalys, Region Dalarna"
+author: "Samhällsanalys"
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+lang: sv
+format:
+  html:
+    include-in-header: favicon.html
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Inledning
+
+Denna rapport beskriver hur Samhällsanalys inom Region Dalarna arbetar med webb-GIS. Nedan beskrivs detaljerat webbkartans funktioner, hur den är uppsatt och hur man går tillväga för att publicera och visualisera geografiskt underlag.
+
+# Systemöversikt
+Systemet består av två Windows-servrar för drift av QGIS Server och Origo, med gemensam PostgreSQL-databas med tillägget PostGIS. Miljön är uppdelad i en intern och en publik server.
+
+| Server | Adress | Användning |
+|---|---|---|
+| **WFALMITVS965** | [karta.ltdalarna.se](http://karta.ltdalarna.se) | Internt webb-GIS, åtkomst inom Region Dalarnas nätverk |
+| **WFALMITVS904** | [karta.regiondalarna.se](http://karta.regiondalarna.se) | Externt webb-GIS, publikt tillgänglig |
+
+Båda servrarna delar samma PostGIS-databasserver och kör samma programvaror:
+
+| **QGIS Desktop 3.44.3-1** Används för att skapa och spara .qgz-projekt
+| **QGIS Server 3.44.3-1** Körs via IIS/FastCGI som backend för WMS/WFS
+| **Origo 2.9.0** Webbaserad kartklient byggd med OpenLayers och Node.js v18.20.0
+| **FastCGI 2.4.2-5** Kör QGIS Server-processen via IIS och möjliggör WMS/WFS-kommunikation
+
+För att trafiken mellan Origo och QGIS Server ska fungera används URL Rewrite och ARR-proxy i IIS, vilket gör att anrop till `http://localhost/qgis/` som skickas vidare internt till QGIS Server.
+
+## PostGIS-databas
+
+PostGIS‑databasen finns på en separat serveryta och fungerar som den centrala lagringsplatsen för alla geografiska data som används i QGIS‑projekten och därmed även i Origo. Den innehåller geodata och tabeller som vi på Samhällsanalys använder i analyser, rapporter och kartor. I webbkartan används bl.a. följande datakällor:
+
+| **Öppna data från Lantmäteriet och SCB** - adresser, administrativa gränser, tätorter, LA-områden
+| **Kollektivtrafik** - hållplatser, linjer, avgångar
+| **Tillväxtverket, Pipos** - kommersiell och offentlig service
+
+Databasen är konfigurerad för åtkomst både internt och från QGIS Server, och kopplingsregler hanteras via `pg_hba.conf`. Säkerhetsnivån styrs genom brandväggsregler, rollhantering och schemaanvändning.
+
+## QGIS-projekt
+
+På respektive serveryta finns ett QGIS-projekt (.qgz) under `E:\QGISProjects`, `publik.qgz` respektive `intern.qgz`, där samtliga lager som visas i webbkartan läggs in och publiceras till QGIS Server.
+
+Uppkoppling till databasen måste läggas till i QGIS för varje användare som loggar in på serverytan. Detta görs med läskontot *geodata_las*.
+
+## Origo
+
+Origo är ett ramverk för webbkartor. Ramverket bygger på JavaScript-biblioteket OpenLayers. Region Dalarna använder Origo för att skapa egna webbkartor. Projektet drivs och underhålls av ett antal svenska kommuner. Besök [Origo på GitHub](https://github.com/origo-map/origo) för mer information.
+
+Origo fungerar som webbaserad kartklient och kommunicerar med QGIS Server via WFS‑ eller WMS-tjänst i QGIS Server. Origo-klienten installeras under `E:\Apps\inetpub\wwwroot\origo` och körs som en statisk webbapplikation, kommunikationen med QGIS Server sker via proxyn **/qgis/**.
+
+```
+origo/
+├── css/
+│   ├── png/
+│   ├── svg/
+│   └── style.css
+├── data/
+│   └── ...
+├── img/
+│   ├── png/
+│   │   └── ...
+│   └── ...
+├── plugins/
+│   └── .../
+├── kartor/
+│   ├── kulturkarta/
+│   ├── infrastruktur/
+│   └── .../
+├── index.html
+├── index.json
+├── origo.min.js
+├── style.css
+├── styles.json
+└── web.config
+```
+
+## QGIS Server
+
+QGIS Server installeras under `E:\Apps\inetpub\wwwroot\QGISBackend` De lager som visas i webbkartan publiceras på QGIS Server via QGIS Desktop som finns installerat på respektive serveryta. 
+
+# Webbkartan
+
+Origo‑applikationen initieras med `index.html` och laddd stilmallar, plugins och JavaScript‑moduler. Elementet **#app-wrapper** fungerar som renderingsyta för kartan.
+Vid uppstart hämtas två konfigurationsfiler:
+
+| **index.json** – huvudkonfiguration och kartlager
+| **styles.json** – kartstilar
+
+Dessa kombineras och skickas till Origo(config) som initierar kartvyn. När applikationen är laddad läggs även eventuella plugins till.
+
+:::{.callout-note}
+Fullständig dokumentation finns att ta del av på denna länk: [Origos dokumentation](https://origo-map.github.io/origo-documentation/latest/#show-feature-info)
+:::
+
+## Kartlager
+
+Kartlager definieras i `index.json` under nyckeln *layers* och refererar till respektive lager på QGIS Server. Varje lager har en angiven *name*-egenskap som definieras i `index.json`. För att Origo ska kunna hänvisa till rätt lager måste varje lager ha ett unikt och korrekt satt *”Short name”*, vilket definieras på varje enskilt lager i respektive QGIS-projekt under Layer Properties > QGIS Server. Publicering av lager till QGIS Server för visning i webbkartan görs genom följande steg:
+
+1. **Logga in på serverytan** - WFALMITVS965 eller WFALMITVS904
+1. **Öppna QGIS-projektet** - intern.qgz eller publik.qgz
+1. **Lägg till lager** till QGIS-projektet från geodatabasen
+1. **Högerklicka på lager** och öppna Lageregenskaper > QGIS Server - ange åtminstone ett *"Short name"* för lagret
+1. **(För WFS)** Navigera till Projektegenskaper > QGIS Server > WFS/OAPI och klicka i rutan *Publicerad* för lagret
+1. **Öppna Origo-konfigurationen** `index.json` och lägg till lagret enligt strukturen som beskrivs nedan.
+
+```{.json filename="index.json"}
+"layers": [
+  {
+    "name": "hallplatslage",
+    "title": "Hållplatsläge",
+    "group": "kollektivtrafik_group",
+    "style": "hallplatslage",
+    "source": "qgis",
+    "maxScale": 50000
+  },
+  {
+    "name": "offentlig_service_bibliotek",
+    "title": "Bibliotek",
+    "source": "qgis",
+    "group": "offentlig_service_group",
+    "style": "servicepunkter_bibl",
+    "visible": false,
+    "attributes": [
+    	{ "title": "Namn: ", 		"name": "name" },
+    	{ "title": "Kommunkod: ", 	"name": "kommunkod" },
+    	{ "title": "Länskod: ", 	"name": "lanskod" }
+    ]
+  }
+]
+```
+
+Nu är lagret tillgängligt i kartan och återfinns i legend-panelen under den grupp som angivits som *group*-egenskap. Även stilsättning, titel, attribut i popup-rutan, filter och annan funktionalitet för lagret sätts här.
+
+## Lägga till flera kartlager från samma lager/källa i QGIS
+
+Data publiceras via QGIS Server (WFS eller WMS) som ovan men ska visas som flera separata lager i Origo baserat på olika kolumner, t.ex. för olika analyser eller varianter (rutter för de  inom 15/30/45 minuter med cykel). För att inte behöva duplicera lagren i QGIS när man använder sig av samma tabell men olika kolumner kan man följa nedan arbetsgång.
+
+1. **Lägg till lager** till QGIS-projektet från geodatabasen
+1. **Högerklicka på lager** och öppna Lageregenskaper > QGIS Server - ange åtminstone ett *"Short name"* för lagret
+1. **(För WFS)** Navigera till Projektegenskaper > QGIS Server > WFS/OAPI och klicka i rutan *Publicerad* för lagret
+1. **Öppna Origo-konfigurationen** `index.json` och lägg till en källa under "sources" enligt nedan struktur.
+
+```{.json filename="index.json"}
+
+"source": {
+    "qgis": {
+	  "type": "WFS",
+      "url": "sökväg till QGIS projeketet"
+    },
+	 "qgis_cykel": {    
+		"type": "WFS",    
+		"url": "sökväg till QGIS projeketet",
+		"layers": [
+		  "cykelpotential_arbete_nvdb"
+		  ] 
+	}
+```
+1. **Gå till "layers"** i `index.json` och definiera "source" under önskat lager till den skräddarsydda källan som lagts till enligt ovan struktur (i detta faller "qgis_cykel").
+
+```{.json filename="index.json"}
+"layers": [
+  {
+    "name": "hallplatslage",
+    "title": "Hållplatsläge",
+    "group": "kollektivtrafik_group",
+    "style": "hallplatslage",
+    "source": "qgis",
+    "maxScale": 50000
+  },
+  {
+    "name": "cykelpotential_arbete_nvdb_15",
+      "title": "Cykelpotential arbete 15 min",
+      "source": "qgis_cykel",
+      "group": "cykelpotential_arbete_nvdb",
+      "style": "cykelpotential_arbete_15",
+      "visible": false,
+	  "attributes": [
+	  	{ "title": "Antal: ", 		"name": "pass_cykel_15_arbete" }
+  ]
+ },
+ {
+    "name": "cykelpotential_arbete_nvdb_30",
+      "title": "Cykelpotential arbete 30 min",
+      "source": "qgis_cykel",
+      "group": "cykelpotential_arbete_nvdb",
+      "style": "cykelpotential_arbete_30",
+      "visible": false,
+	  "attributes": [
+	  	{ "title": "Antal: ", 		"name": "pass_cykel_30_arbete" }
+  ]
+ }
+]
+```
+Nu kan man från samma källa lägga till flera lager i Origokartan baserat på olika kolumner så länge man definierar "source" till den skräddarsydda källan. 
+
+
+## Grupper
+
+Kartlager organiseras i grupper som visas i legend-panelen. En grupp kan expanderas för att visa och styra enskilda lager, eller tändas/släckas i sin helhet. Grupper definieras i `index.json` under nyckeln *groups* och refereras sedan från varje kartlager. Grupper kan även innehålla undergrupper genom *group*-egenskapen, vilket används för att organisera många lager i flera nivåer. Se några exempel nedan.
+
+
+```{.json filename="index.json"}
+"groups": [
+  {
+    "name": "kollektivtrafik_group",
+    "title": "Kollektivtrafik",
+    "expanded": false,
+    "draggable": true
+  },
+  {
+    "name": "service_group",
+    "title": "Service",
+    "expanded": false,
+    "groups": [
+      {
+        "name": "kommersiell_service_group",
+        "title": "Kommersiell service",
+        "showAbstractInLegend": true,
+        "abstract": "Källa: Kommersiell service | Pipos",
+        "draggable": true,
+      },
+      {
+        "name": "offentlig_service_group",
+        "title": "Offentlig service",
+        "draggable": true
+      }
+    ]
+  }
+]
+```
+
+## Stilsättning
+
+Stilsättning av kartlager skapas med OpenLayers-stilar. I OpenLayers skapas stilar som JavaScript-funktioner men i Origo är skapandet förenklat och endast JSON-syntax används. Samtliga stilar definieras i `styles.json` enligt strukturen nedan.
+
+```{.json filename="styles.json"}
+{
+  "hallplatslage": [
+    [
+      {
+        "circle": {
+          "radius": 2,
+          "stroke": {
+            "color": "rgba(200, 20, 20, 0.9)",
+            "width": 1
+          },
+          "fill": {
+            "color": "rgba(200, 20, 20, 0.05)"
+          }
+        },
+        "label": "Hållplatsläge",
+        "header": true
+      }
+    ]
+  ],
+  "servicepunkter_bibl": [
+    [
+      {
+        "circle": {
+          "radius": 4,
+          "stroke": {
+            "color": "rgba(255, 255, 255, 0.7)",
+            "width": 1
+          },
+          "fill": {
+            "color": "rgba(0, 120, 100, 0.8)"
+          }
+        },
+        "label": "Bibliotek",
+        "header": true
+      }
+    ]
+  ]
+}
+```
+
+## Plugins
+
+Nedan listas de plugin till Origo som finns installerade i Region Dalarnas webbkarta
+
+### PrintLogoSwitcher
+
+Pluginet PrintLogoSwitcher låter användaren registrera flera logotyper och ger möjligheten att ändra utskriftslogotypen i din Origo-kartinstans. Resultatet är att kartan renderas med Origo baserat på JSON‑konfigurationerna och får stöd för dynamiskt byte av logotyp vid utskrift.
+
+:::{.callout-note}
+Läs mer på [PrintLogoSwitcher på Github](https://github.com/kartomat/print-logo-switcher-plugin)
+:::
+
+# Skapa en ny webbkarta
+
+Detta avsnitt beskriver steg-för-steg hur en ny webbkarta sätts upp. Varje webbkarta ligger i en egen mapp med en egen HTML- och JSON-konfiguration. I exemplet nedan skapas kartan `webbkarta` som nås på *karta.ltdalarna.se/webbkarta*.
+
+## Skapa ny mapp för kartan
+
+Skapa en ny mapp i webbplatsens rotkatalog och döp den till webbkarta.
+
+## Kopiera filer
+
+Kopiera följande filer från en befintlig karta, förslagsvis index, till den nya mappen:
+
+| **index.html** → döp om till webbkarta.html
+| **index.json** → döp om till webbkarta.json
+
+## Uppdatera .html
+
+Öppna `webbkarta.html` och uppdatera titel och eventuella kartsspecifika inställningar:
+
+```html
+rad 14: <title>Webbkarta - Region Dalarna</title>
+
+rad 25: fetch('kartor/webbkarta/webbkarta.json').then(r => r.json()),
+
+```
+
+## Uppdatera .json
+
+Redigera `webbkarta.json` med kartans lager, grupper och källor enligt behov. Stilsättning för kartlager definieras i `styles.json` som ligger i webbplatsens rotkatalog, vilken innehåller samtliga stilar i alla webbkartor.
+
+## Uppdatera web.config
+
+Lägg till en rewrite-regel i `web.config` så att **karta.ltdalarna.se/webbkarta** pekar på rätt HTML-fil:
+
+```{.xml filename="web.config"}
+<rule name="Webbkarta" stopProcessing="true">
+  <match url="^webbkarta$" />
+  <action type="Rewrite" url="/kartor/webbkarta/webbkarta.html" />
+</rule>
+```
+
+Den fullständiga `web.config` ser då ut så här:
+
+```{.xml filename="web.config"}
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+    <rewrite>
+      <rules>
+        <rule name="Proxy QGIS Server" stopProcessing="true">
+          <match url="^qgis/(.*)" />
+          <action type="Rewrite" url="http://localhost:8080/{R:1}" />
+        </rule>
+        <rule name="Kulturkarta" stopProcessing="true">
+          <match url="^kulturkarta$" />
+          <action type="Rewrite" url="/kartor/kulturkarta/kulturkarta.html" />
+        </rule>
+        <rule name="Infrastruktur" stopProcessing="true">
+          <match url="^infrastruktur$" />
+          <action type="Rewrite" url="/kartor/infrastruktur/infrastruktur.html" />
+        </rule>
+        <rule name="Webbkarta" stopProcessing="true">
+          <match url="^webbkarta$" />
+          <action type="Rewrite" url="/kartor/webbkarta/webbkarta.html" />
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>
+```
+
+## Klar!
+
+Testa att kartan nås på **karta.ltdalarna.se/webbkarta**.
+
+Mappstrukturen på servern bör efter detta se ut ungefär så här:
+
+```
+origo/
+├── kartor/
+│   ├── kulturkarta/
+│   │   ├── kulturkarta.html
+│   │   └── kulturkarta.json
+│   └── infrastruktur/
+│   │   ├── infrastruktur.html
+│   │   └── infrastruktur.json
+│   └── webbkarta/
+│       ├── webbkarta.html
+│       └── webbkarta.json
+├── styles.json
+└── web.config
+```
+
+# Felsökning
+## Tips och trix
+För att kontrollera att kartan och alla lager laddas korrekt kan webbläsarens *DevTools* användas (öppnas med F12).
+
+1. Kontrollera Console för JavaScript‑fel.
+1. Kontrollera Network för att se att WMS/WFS‑anrop returnerar status 200.
+1. Vid problem med WFS: kontrollera vilket TYPENAME som skickas i GetFeature‑anropet.
+
+## Layers ordning WMS och WFS
+Om ett WMS lager ligger inlagt utan att tillhöra en grupp så måste det placeras längst ner i "layers" för att andra WFS lager ska få sin stilsättning synlig i kartan eller så behöver man sätta *"type": "background"* på WMS lagret. WFS lager blir annars klickbara men inte synliga.
+
+## "name" i "layers" matchar "short name" i QGIS Server men inget renderas
+Om man har ändrat namn på ett lager som man lagt in i QGIS projektet så kan ibland det första "typeName" som 
+Origo hämtar från QGIS Server vara det gamla namnet som inte längre matchar "name" i "layers" i index.json. En lösning är att ta bort och sen lägga till lagret igen i QGIS projeketet. Sätt då det namn som matchar "layers" och "name" i index.json.
+
+Det som står i *GetCapabilities* är det giltiga namnet för WFS‑anrop från Origo.
+

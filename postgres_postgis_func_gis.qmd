@@ -1,0 +1,887 @@
+---
+title: "Arbetssätt med PostgreSQL och PostGIS"
+author: "Samhällsanalys, Region Dalarna"
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+lang: sv
+format:
+  html:
+    include-in-header: www/favicon.html
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+# Inledning
+
+På denna sida beskriver vi hur vi arbetar med våra PostgreSQL- och PostGIS-databaser från R. Dokumentationen täcker hela kedjan — från att skapa databaser, scheman och användare till att tilldela roller och behörigheter, läsa och skriva data samt hantera geografisk information med PostGIS.
+
+Funktionerna finns i *func_GIS.R* och laddas in med:
+
+```r
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
+       encoding = "utf-8", echo = FALSE)
+```
+
+## Vem är detta för — och var ska jag börja läsa?
+
+:::{.callout-tip}
+## 📊 Du ska läsa eller skriva data till en befintlig databas
+Läs avsnittet **[Uppkoppling](#uppkoppling)** och sedan **[Läsa och skriva data](#lasa-skriva)**. Du behöver normalt inte läsa avsnitten om användare, roller eller behörigheter.
+:::
+
+:::{.callout-tip}
+## 🗺️ Du arbetar med geografisk data (GIS)
+Läs avsnittet **[PostGIS](#postgis)** som beskriver hur du läser in och skriver sf-objekt till databasen, skapar spatiala index och arbetar med isokroner.
+:::
+
+:::{.callout-warning}
+## 🔐 Du ska lägga till eller administrera användare och behörigheter
+Läs avsnittet **[Användare, roller och behörigheter](#anvandare-roller)**. Du behöver administrativ uppkoppling (`uppkoppling_adm()`) för de flesta av dessa operationer.
+:::
+
+# Koncept och struktur {#koncept}
+
+## Hierarkin i PostgreSQL
+
+PostgreSQL är organiserat i tre nivåer som är bra att känna till:
+
+```
+Server (WFALMITVS526.ltdalarna.se)
+  └── Databas (t.ex. "geodata", "oppna_data")
+        └── Schema (t.ex. "karta", "scb", "metadata")
+              └── Tabell / Vy / Materialiserad vy
+```
+
+- **Databas** — en isolerad behållare. En uppkoppling (`con`) gäller alltid mot en specifik databas.
+- **Schema** — en namnrymd inom databasen. Vi använder scheman för att gruppera tabeller logiskt.
+- **Tabell/Vy** — de faktiska dataobjekten.
+
+## Roller och användare
+
+I PostgreSQL är roller och användare i grunden samma sak — skillnaden är om rollen har login-rättigheter (`ROLCANLOGIN`):
+
+- **Användare** — en roll med login-rättighet. Kan koppla upp mot databasen.
+- **Roll (utan login)** — en grupp av behörigheter som kan tilldelas användare. Vi använder ofta `lasroll` och `skrivroll` som standardroller.
+
+Roller ärvs hierarkiskt: om `anna` tilldelas rollen `lasroll`, ärver `anna` alla `lasroll`:s behörigheter.
+
+## Rättighetsnivåer
+
+Behörigheter ges på tre nivåer:
+
+| Nivå | Exempel på rättigheter |
+|------|------------------------|
+| Databas | `CONNECT`, `TEMPORARY` |
+| Schema | `USAGE`, `CREATE` |
+| Tabell | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE` |
+
+En användare som ska kunna läsa från en tabell behöver minst: `CONNECT` på databasen + `USAGE` på schemat + `SELECT` på tabellen.
+
+# Uppkoppling {#uppkoppling}
+
+## `uppkoppling_db()` — standard läsuppkoppling
+
+Skapar en uppkoppling till databasen med standardinloggningsuppgifter. Läsanvändaren `geodata_las` används som standard. Uppkopplingen sparas i ett objekt (`con`) som skickas med till övriga funktioner.
+
+```r
+con <- uppkoppling_db()
+```
+
+I de allra flesta fall räcker det att skicka med den första parametern (`db_name`) — resten har bra standardvärden. Vill du till exempel hämta data från geodatabasen räcker det med:
+
+```r
+con <- uppkoppling_db("geodata")
+```
+
+```r
+# Med fler egna parametrar vid behov:
+con <- uppkoppling_db(
+  db_name    = "geodata",
+  service_name = "databas_adm",        # hämtar lösenord via keyring
+  db_host    = "WFALMITVS526.ltdalarna.se",
+  db_port    = 5432,
+  db_options = "-c search_path=public"
+)
+```
+
+**Parametrar:**
+
+| Parameter | Standard | Beskrivning |
+|-----------|----------|-------------|
+| `db_name` | `"geodata"` | Databasens namn |
+| `service_name` | `NA` | Keyring-tjänst för lösenordsuppslag |
+| `db_host` | `"WFALMITVS526.ltdalarna.se"` | Serveradress |
+| `db_port` | `5432` | Port |
+| `db_user` | `"geodata_las"` | Användarnamn (om `service_name` är `NA`) |
+| `db_password` | `"geodata_las"` | Lösenord (om `service_name` är `NA`) |
+
+:::{.callout-note}
+Om du kör på samma server som databasen körs på (`nodename` matchar `db_host`) används `"localhost"` automatiskt — utan manuell konfiguration.
+:::
+
+## `uppkoppling_adm()` — administrativ uppkoppling
+
+Wrapper kring `uppkoppling_db()` som hämtar inloggningsuppgifter via keyring-tjänsten `"databas_adm"`. Detta förutsätter att det i `keyring()` finns sparade uppgifter till en användare i databasen som har administrativa rättigheter (t.ex. att skapa users/roller, sätta behörigheter, skapa/ta bort databaser och scheman).
+
+```r
+con_adm <- uppkoppling_adm(databas = "geodata")
+```
+
+:::{.callout-warning}
+## Använd bara `uppkoppling_adm()` för administrativa operationer
+`uppkoppling_adm()` ska **endast** användas för administrativa åtgärder — skapa/ta bort användare, roller, behörigheter, databaser och scheman. Ska du bara läsa eller skriva data till `geodata` eller `oppna_data` i vanliga skript och Shinyappar, använd istället `uppkoppling_db()`. Det håller nere antalet uppkopplingar som görs med det administrativa kontot och minskar risken att ett skript av misstag gör ändringar det inte borde.
+:::
+
+## Stänga uppkopplingen
+
+Kom alltid ihåg att stänga uppkopplingen när du är klar — speciellt om du hanterar den manuellt:
+
+```r
+DBI::dbDisconnect(con)
+```
+
+De flesta funktioner i `func_GIS.R` hanterar detta automatiskt via `default_flagga` om `con = "default"` används.
+
+# Databaser och scheman {#databaser-scheman}
+
+## Databaser
+
+### `postgres_lista_databaser()` — lista databaser
+
+Listar alla databaser på servern (exklusive systemdatabaser).
+
+```r
+postgres_lista_databaser()
+# Returnerar en dataframe med kolumnen: databas
+```
+
+### `postgres_databas_skapa()` — skapa ny databas
+
+```r
+con_adm <- uppkoppling_adm("postgres")
+postgres_databas_skapa(con = con_adm, databasnamn = "min_nya_databas")
+```
+
+### `postgres_databas_ta_bort()` — ta bort databas
+
+:::{.callout-danger}
+## ⚠️ Använd med yttersta försiktighet
+Tar bort hela databasen och all dess data. Funktionen kräver en manuell bekräftelse (`"ja"`) i konsolen innan den körs.
+:::
+
+```r
+postgres_databas_ta_bort(con = con_adm, databasnamn = "min_databas")
+```
+
+## Scheman
+
+### `postgres_lista_scheman_tabeller()` — lista scheman och tabeller
+
+Returnerar en namngiven lista där varje element är ett schema, och värdet är en vektor med tabellnamnen (inkl. vyer och materialiserade vyer) i det schemat.
+
+```r
+con <- uppkoppling_db()
+scheman <- postgres_lista_scheman_tabeller(con = con)
+
+# Se alla tabeller i ett specifikt schema:
+scheman$karta
+```
+
+### `postgres_schema_skapa_om_inte_finns()` — skapa schema
+
+```r
+postgres_schema_skapa_om_inte_finns(schema_namn = "nytt_schema", con = con_adm)
+```
+
+### `postgres_schema_ta_bort()` — ta bort schema
+
+Kontrollerar att schemat är tomt (inga tabeller) innan det tas bort.
+
+```r
+postgres_schema_ta_bort(con = con_adm, schema = "gammalt_schema")
+```
+
+### `postgres_schema_finns()` — kontrollera om schema finns
+
+Returnerar `TRUE` eller `FALSE`.
+
+```r
+postgres_schema_finns(con, schema_namn = "karta")
+```
+
+# Användare, roller och behörigheter {#anvandare-roller}
+
+## Hela kedjan i korthet
+
+Typiskt flöde när en ny person ska ges åtkomst till en databas:
+
+```r
+con_adm <- uppkoppling_adm("geodata")
+
+# 1. Skapa användare
+postgres_anvandare_lagg_till(con_adm, "anna_andersson", "hemligtLosenord123!")
+
+# 2. Tilldela en befintlig roll (t.ex. lasroll)
+postgres_roll_tilldela_till_anvandare(con_adm,
+                                      rollnamn    = "lasroll",
+                                      anvandarnamn = "anna_andersson")
+
+# 3. Kontrollera att det blev rätt
+postgres_alla_rattigheter(con_adm, anvandarnamn = "anna_andersson")
+```
+
+## Användare
+
+### `postgres_anvandare_lagg_till()` — skapa användare
+
+Skapar en ny PostgreSQL-användare med lösenord. Om användaren redan finns skrivs ett meddelande ut (inget fel kastas).
+
+```r
+postgres_anvandare_lagg_till(
+  con          = con_adm,
+  anvandarnamn = "ny_anvandare",
+  losenord     = "HemligtLosenord1!"
+)
+```
+
+### `postgres_anvandare_ta_bort()` — ta bort användare
+
+Kontrollerar att användaren finns och försöker sedan ta bort den. Misslyckas om användaren äger objekt i databasen.
+
+```r
+postgres_anvandare_ta_bort(con_adm, anvandarnamn = "gammal_anvandare")
+```
+
+### `postgres_losenord_byt_for_anvandare()` — byt lösenord
+
+```r
+postgres_losenord_byt_for_anvandare(
+  con          = con_adm,
+  anvandarnamn = "anna_andersson",
+  nytt_losenord = "NyttLosenord2!"
+)
+```
+
+## Roller
+
+En **roll** (utan login) fungerar som en behörighetsgrupp. Vi använder standardrollerna `lasroll` (SELECT) och `skrivroll` (SELECT, INSERT, UPDATE, DELETE). Roller tilldelas till användare med GRANT.
+
+### `postgres_roll_lagg_till()` — skapa roll
+
+Skapar rollen om den inte redan finns (`IF NOT EXISTS`).
+
+```r
+postgres_roll_lagg_till(con_adm, rollnamn = "lasroll")
+postgres_roll_lagg_till(con_adm, rollnamn = "skrivroll")
+```
+
+### `postgres_roll_ta_bort()` — ta bort roll
+
+```r
+postgres_roll_ta_bort(con_adm, rollnamn = "gammal_roll")
+```
+
+### `postgres_roll_tilldela_till_anvandare()` — tilldela roll till användare
+
+Kör `GRANT rollnamn TO anvandarnamn`. Användaren ärver rollens alla behörigheter.
+
+```r
+postgres_roll_tilldela_till_anvandare(
+  con          = con_adm,
+  rollnamn     = "lasroll",
+  anvandarnamn = "anna_andersson"
+)
+```
+
+### `postgres_roll_ta_bort_fran_anvandare()` — återkalla roll från användare
+
+Kör `REVOKE rollnamn FROM anvandarnamn`.
+
+```r
+postgres_roll_ta_bort_fran_anvandare(
+  con          = con_adm,
+  rollnamn     = "lasroll",
+  anvandarnamn = "anna_andersson"
+)
+```
+
+## Manuella behörigheter per användare
+
+Ibland vill man ge specifika behörigheter direkt till en användare (utan att gå via roll).
+
+### `postgres_rattigheter_anvandare_lagg_till()` — lägg till behörigheter
+
+Ger behörigheter på databas-, schema- och tabellnivå i ett anrop. Standard är läsrättigheter.
+
+```r
+# Läsrättigheter (standard)
+postgres_rattigheter_anvandare_lagg_till(
+  con          = con_adm,
+  anvandarnamn = "anna_andersson",
+  schema       = "alla",                          # alla scheman
+  rattigheter  = c("CONNECT", "SELECT", "USAGE")
+)
+
+# Skrivrättigheter på ett specifikt schema
+postgres_rattigheter_anvandare_lagg_till(
+  con          = con_adm,
+  anvandarnamn = "skript_anvandare",
+  schema       = "scb",
+  rattigheter  = c("CONNECT", "USAGE", "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE")
+)
+```
+
+### `postgres_rattigheter_anvandare_ta_bort()` — ta bort behörigheter
+
+```r
+postgres_rattigheter_anvandare_ta_bort(
+  con          = con_adm,
+  anvandarnamn = "anna_andersson",
+  schema       = "alla",
+  rattigheter  = "alla"
+)
+```
+
+### `postgres_lista_giltiga_rattigheter()` — lista alla rättighetstyper
+
+Returnerar en dataframe med rättighetsnamn och beskrivningar.
+
+```r
+postgres_lista_giltiga_rattigheter()
+```
+
+| Rättighet | Beskrivning |
+|-----------|-------------|
+| `CONNECT` | Ansluta till databasen |
+| `SELECT` | Läsa data |
+| `INSERT` | Lägga till rader |
+| `UPDATE` | Uppdatera befintlig data |
+| `DELETE` | Ta bort rader |
+| `TRUNCATE` | Tömma tabell utan att utlösa triggers |
+| `USAGE` | Använda scheman, sekvenser och typer |
+| `CREATE` | Skapa objekt i schema |
+| `TEMP` | Skapa temporära tabeller |
+| `REFERENCES` | Skapa foreign keys |
+| `EXECUTE` | Köra lagrade procedurer |
+
+## Automatiska grants med event triggers
+
+För att slippa lägga till behörigheter manuellt varje gång en ny tabell skapas kan man installera event triggers som automatiskt ger `lasroll` och `skrivroll` rätt behörigheter på nya objekt.
+
+### `postgres_grants_auto_skapa()` — installera auto-grants
+
+Installerar en PostgreSQL-funktion och event triggers som körs varje gång en tabell, vy eller materialiserad vy skapas. Ger automatiskt `SELECT` till `lasroll` och `SELECT/INSERT/UPDATE/DELETE` till `skrivroll`.
+
+```r
+postgres_grants_auto_skapa(
+  con                    = con_adm,
+  remove_old             = TRUE,          # ta bort gamla triggers om de finns
+  rattigheter_pa_befintliga = TRUE,       # ge rättigheter på befintliga objekt också
+  lasroller              = "lasroll",
+  skrivroller            = "skrivroll",
+  lasroll_tilldela       = c("anna_andersson"),   # tilldela direkt till dessa användare
+  skrivroll_tilldela     = c("skript_anvandare")
+)
+```
+
+### `postgres_grants_pa_befintliga_objekt()` — uppdatera befintliga objekt
+
+Ger `lasroll`/`skrivroll` behörigheter på alla redan befintliga scheman, tabeller, vyer och materialiserade vyer. Används när auto-grants installerats i efterhand.
+
+```r
+postgres_grants_pa_befintliga_objekt(
+  con         = con_adm,
+  lasroller   = "lasroll",
+  skrivroller = "skrivroll"
+)
+```
+
+### `postgres_grants_auto_visa()` — visa installerade triggers
+
+Skriver ut befintliga event triggers och default privileges.
+
+```r
+postgres_grants_auto_visa(con_adm)
+```
+
+### `postgres_grants_auto_testa()` — testa att auto-grants fungerar
+
+Skapar ett temporärt testschema med tabell, vy och materialiserad vy, kontrollerar att rättigheterna sätts automatiskt och städar sedan upp. Bra att köra direkt efter installation.
+
+```r
+postgres_grants_auto_testa(con_adm)
+```
+
+## Granska behörigheter
+
+### `postgres_lista_roller_anvandare()` — lista alla roller och användare
+
+```r
+postgres_lista_roller_anvandare(con = con_adm)
+# Kolumner: rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin
+```
+
+### `postgres_lista_behorighet_till_scheman()` — behörighet per schema
+
+Visar varje roll/användares åtkomstnivå (`read`, `write`, `no access`) för varje schema i aktuell databas.
+
+```r
+postgres_lista_behorighet_till_scheman(con = con_adm)
+```
+
+### `postgres_alla_rattigheter()` — fullständig rättighetsbild per databas
+
+Hanterar ärvda roller rekursivt — om `anna` har `lasroll` och `lasroll` har SELECT på `karta`, syns det korrekt för `anna`. Kan filtreras på ett specifikt användarnamn.
+
+```r
+# Alla användare
+postgres_alla_rattigheter(con = con_adm)
+
+# Bara en specifik användare
+postgres_alla_rattigheter(con = con_adm, anvandarnamn = "anna_andersson")
+```
+
+### `postgres_alla_rattigheter_server()` — rättighetsbild över hela servern
+
+Loopar igenom alla databaser på servern och sammanställer rättigheterna för en specifik användare. Kräver att `uppkoppling_adm()` fungerar mot varje databas.
+
+```r
+postgres_alla_rattigheter_server(
+  anvandarnamn              = "anna_andersson",
+  visa_databaser_utan_connect = TRUE,   # visa även databaser användaren saknar access till
+  visa_alla_scheman         = FALSE     # FALSE = visa bara sammanfattning per databas
+)
+```
+
+# Läsa och skriva data {#lasa-skriva}
+
+## Läsa data
+
+### `postgres_tabell_till_df()` — läs tabell till dataframe
+
+Kärnan i datainläsning. Läser en hel tabell eller med en valfri WHERE-sats.
+
+```r
+con <- uppkoppling_db()
+
+# Läs hela tabellen
+df <- postgres_tabell_till_df(con, schema = "scb", tabell = "befolkning")
+
+# Med filtrering (WHERE-sats skickas som query-parameter)
+df <- postgres_tabell_till_df(con,
+                              schema = "scb",
+                              tabell = "befolkning",
+                              query  = "WHERE ar = 2023 AND lan = '20'")
+```
+
+### `postgres_meta()` — läs metadata
+
+Läser från `metadata.aktuell_version` (eller annan metadatatabell) för att se när tabeller senast uppdaterades.
+
+```r
+postgres_meta(con = con)
+
+# Specifik tabell
+postgres_meta(con = con,
+              schema = "metadata",
+              tabell = "uppdateringar",
+              query  = "WHERE schema = 'scb' ORDER BY uppdaterad_datum DESC LIMIT 10")
+```
+
+### `postgres_hamta_oppnadata()` / `oppnadata_hamta()` — läs från öppna data-databasen
+
+Wrapper som kopplar mot `oppna_data`-databasen. Utan argument listas scheman och tabeller.
+
+```r
+# Lista innehållet
+oppnadata_hamta()
+
+# Hämta en specifik tabell
+df <- oppnadata_hamta(schema = "scb", tabell = "befolkning_lan")
+```
+
+## Skriva data
+
+### `postgres_df_till_postgrestabell()` — skriv dataframe till tabell
+
+Skriver en `data.frame` till en PostgreSQL-tabell. Skapar schemat om det inte finns. Vid uppdatering töms tabellen men strukturen och behörigheterna behålls.
+
+```r
+postgres_df_till_postgrestabell(
+  con                       = con_adm,
+  inlas_df                  = min_df,
+  schema                    = "scb",
+  tabell                    = "befolkning",
+  id_kol                    = "id",         # kolumn som görs till primärnyckel (NA = ingen)
+  addera_data               = FALSE,        # TRUE = append, FALSE = truncate + skriv
+  tabellnamn_till_gemener   = TRUE,
+  kolumnnamn_till_gemener   = TRUE
+)
+```
+
+### `postgres_databas_skriv_med_metadata()` — skriv med automatisk metadatalogning
+
+Wrapper som skriver data och automatiskt uppdaterar `metadata.uppdateringar`. Rekommenderas framför den direkta funktionen när tabellen ingår i ett regelbundet uppdateringsflöde.
+
+```r
+postgres_databas_skriv_med_metadata(
+  con                     = con_adm,
+  inlas_df                = min_df,
+  schema                  = "scb",
+  tabell                  = "befolkning",
+  id_kol                  = "id",
+  postgis_addera_data     = FALSE,
+  kommentar_metadata      = "Uppdaterat från SCB 2024-03",
+  version_datum           = "2024-03-01",
+  version_tid             = "00:00:00"
+)
+```
+
+## Tabellhantering
+
+### `postgres_tabell_finns()` — kontrollera om tabell finns
+
+Returnerar `TRUE` eller `FALSE`.
+
+```r
+postgres_tabell_finns(con, schema = "scb", tabell = "befolkning")
+```
+
+### `postgres_tabell_ta_bort()` — ta bort tabell, vy eller materialiserad vy
+
+Identifierar automatiskt objekttypen (tabell/vy/materialiserad vy) och tar bort rätt typ.
+
+```r
+postgres_tabell_ta_bort(con_adm,
+                        schema       = "scb",
+                        tabell       = "gammal_tabell",
+                        drop_cascade = FALSE)   # TRUE tar med sig beroende objekt
+```
+
+### `postgres_lista_kolumnnamn_i_schema()` — lista kolumnnamn
+
+```r
+postgres_lista_kolumnnamn_i_schema(con, schema = "scb")
+# Returnerar: table_name, column_name, data_type
+```
+
+### `postgres_finns_schema_tabell_kolumner()` — validera existens
+
+Kontrollerar om ett schema, en tabell och/eller specifika kolumner finns. Kastar fel (eller returnerar en lista) om något saknas.
+
+```r
+# Kastar fel om något saknas (bra i början av ett skript)
+postgres_finns_schema_tabell_kolumner(
+  con      = con,
+  schema   = "scb",
+  tabell   = "befolkning",
+  kolumner = c("ar", "lan", "varde")
+)
+
+# Returnerar lista istället för att kasta fel
+result <- postgres_finns_schema_tabell_kolumner(
+  con           = con,
+  schema        = "scb",
+  tabell        = "befolkning",
+  kolumner      = c("ar", "lan"),
+  stoppa_vid_fel = FALSE
+)
+result$allt_finns   # TRUE/FALSE
+result$felmeddelande
+```
+
+## Metadata
+
+### `postgres_metadata_uppdatera()` — logga uppdatering
+
+Lägger till en rad i `metadata.uppdateringar`. Skapar schemat och tabellen automatiskt om de inte finns.
+
+```r
+postgres_metadata_uppdatera(
+  con                = con_adm,
+  schema             = "scb",
+  tabell             = "befolkning",
+  version_datum      = "2024-03-01",
+  version_tid        = "00:00:00",
+  lyckad_uppdatering = TRUE,
+  kommentar          = "Hämtat från SCB PxWeb"
+)
+```
+
+### `postgres_tabell_uppdaterades()` — hämta senaste uppdateringsdatum
+
+Returnerar en ISO 8601-sträng (`"2024-03-01T00:00:00Z"`) med senaste versionsdatum för en tabell. Kan ta `"schema.tabell"` som förkortad form.
+
+```r
+postgres_tabell_uppdaterades(con, schema = "scb", tabell = "befolkning")
+# Eller kortformen:
+postgres_tabell_uppdaterades(con, schema = "scb.befolkning")
+```
+
+### `postgres_meta_skapa_vy_aktuell_version()` — skapa vy för senaste versioner
+
+Skapar vyn `metadata.aktuell_version` som visar senaste uppdateringsraden per tabell (utan historik).
+
+```r
+postgres_meta_skapa_vy_aktuell_version(con_adm)
+```
+
+## Synkronisering mot PxWeb2 {#pxweb}
+
+### `postgres_pxweb2_uppdatera_tabell()` — hämta och spara PxWeb2-data
+
+Kontrollerar om en PxWeb2-tabell har uppdaterats sedan senaste databasenskrivning. Om inte — gör ingenting. Om ja — hämtar ny data och skriver till databasen med metadata.
+
+```r
+postgres_pxweb2_uppdatera_tabell(
+  tabell_id_pxweb2  = "TAB5689",
+  db_namn           = "oppna_data",
+  schema_db         = "scb",
+  tabell_db         = "befolkning_lan",
+  hamta_data_funktion = function(tabell_id_pxweb2) {
+    pxweb2_hamta_data(
+      tabell = tabell_id_pxweb2,
+      query  = list(
+        Region = c("20*"),
+        Tid    = "*"
+      )
+    )
+  },
+  uppdatering_tvinga = FALSE,
+  verbose            = TRUE
+)
+```
+
+### `postgres_pxweb2_uppdatera_tabell_skapa_skript()` — generera skriptskelett
+
+Skapar ett färdigt `postgres_pxweb2_uppdatera_tabell()`-anrop och kopierar det till urklippshanteraren.
+
+```r
+postgres_pxweb2_uppdatera_tabell_skapa_skript(
+  tabell_id_pxweb2 = "TAB5689",
+  tabell_db        = "befolkning_lan"
+)
+```
+
+# PostGIS {#postgis}
+
+PostGIS är ett tillägg till PostgreSQL som lägger till stöd för geografiska datatyper och funktioner — i R arbetar vi med `sf`-objekt som kan läsas och skrivas direkt till PostGIS-tabeller.
+
+## Aktivera PostGIS
+
+PostGIS måste aktiveras per databas. Kräver superanvändarrättigheter.
+
+```r
+postgis_aktivera_i_postgres_db(con_adm)
+# Kör: CREATE EXTENSION IF NOT EXISTS postgis;
+```
+
+## Skriva geografisk data
+
+### `postgis_sf_till_postgistabell()` — skriv sf-objekt till databas
+
+Skriver ett `sf`-objekt till en PostGIS-tabell. Skapar schema om det saknas, hanterar truncate/overwrite, skapar spatialt index och primärnyckel.
+
+```r
+postgis_sf_till_postgistabell(
+  con                     = con_adm,
+  inlas_sf                = mitt_sf_objekt,
+  schema                  = "karta",
+  tabell                  = "kommuner",
+  postgistabell_id_kol    = "knkod",     # primärnyckelkolumn (NA = ingen)
+  postgistabell_geo_kol   = "geom",      # geometry-kolumnens namn
+  skapa_spatialt_index    = TRUE,
+  addera_data             = FALSE,       # FALSE = töm och skriv om
+  skriv_over_tabell_om_finns = FALSE     # TRUE = droppa och skapa ny tabell
+)
+```
+
+:::{.callout-note}
+Skillnaden mellan `addera_data` och `skriv_over_tabell_om_finns`: med `addera_data = FALSE` töms tabellen men kolumnstrukturen behålls (säkrare). Med `skriv_over_tabell_om_finns = TRUE` droppar funktionen hela tabellen och skapar en ny — bra om du behöver ändra kolumnstruktur.
+:::
+
+### `postgis_databas_skriv_med_metadata()` — skriv sf-objekt med metadatalogning
+
+Samma som `postgis_sf_till_postgistabell()` men loggar även till `metadata.uppdateringar`.
+
+```r
+postgis_databas_skriv_med_metadata(
+  con                     = con_adm,
+  inlas_sf                = mitt_sf_objekt,
+  schema                  = "karta",
+  tabell                  = "kommuner",
+  postgistabell_geo_kol   = "geom",
+  postgistabell_id_kol    = "knkod",
+  postgis_addera_data     = FALSE,
+  kommentar_metadata      = "Uppdaterade kommungränser 2024"
+)
+```
+
+## Läsa geografisk data
+
+### `postgis_postgistabell_till_sf()` — läs PostGIS-tabell till sf-objekt
+
+Läser en PostGIS-tabell och returnerar ett `sf`-objekt. Stöder valfri WHERE/ORDER BY-sats.
+
+```r
+sf_obj <- postgis_postgistabell_till_sf(
+  con    = con,
+  schema = "karta",
+  tabell = "kommuner",
+  query  = "WHERE lanskod = '20'"    # NA = hämta allt
+)
+```
+
+## Kopiera tabeller
+
+### `postgis_kopiera_tabell()` — kopiera tabell inom samma databas
+
+```r
+postgis_kopiera_tabell(
+  con         = con_adm,
+  schema_fran = "karta",
+  tabell_fran = "kommuner",
+  schema_till = "karta_backup",
+  tabell_till = "kommuner_2024",
+  skriv_over  = FALSE   # TRUE = skriv över om tabell-till redan finns
+)
+```
+
+### `postgis_kopiera_tabell_mellan_databaser()` — kopiera tabell mellan databaser
+
+Kräver uppkopplingar mot båda databaserna. Loggar valfritt metadata i måldatabasen.
+
+```r
+con_fran <- uppkoppling_adm("geodata")
+con_till  <- uppkoppling_adm("oppna_data")
+
+postgis_kopiera_tabell_mellan_databaser(
+  con_fran_databas              = con_fran,
+  con_till_databas              = con_till,
+  schema_fran                   = "karta",
+  tabell_fran                   = "kommuner",
+  schema_till                   = "karta",
+  tabell_till                   = "kommuner",
+  lagg_till_metadata_i_till_databas = TRUE
+)
+```
+
+### `postgis_flytta_tabell()` — flytta tabell mellan scheman
+
+```r
+postgis_flytta_tabell(
+  con         = con_adm,
+  schema_fran = "karta_temp",
+  tabell_fran = "kommuner_ny",
+  schema_till = "karta"
+)
+```
+
+## Isokroner (tillgänglighetsanalyser)
+
+Isokroner är polygoner som visar hur långt man kan nå från en punkt inom en given tid eller ett givet avstånd. Funktionerna bygger på ett vägnätsgraf i PostGIS.
+
+### `postgis_isokroner_bil()` — körtidsbaserade isokroner
+
+```r
+isokroner <- postgis_isokroner_bil(
+  punkter_sf        = mina_punkter,         # sf-objekt med startpunkter
+  idkol_punkt       = "id",
+  namnkol_punkt     = "namn",
+  intervall_varden  = c(15, 30, 45, 60),    # minuter
+  spara_schema      = "analys",             # NULL = spara ej i databas
+  spara_tabell      = "isokroner_sjukhus",
+  returnera_sf      = TRUE,
+  dela_upp_polygoner = TRUE                 # TRUE = "ringar" utan överlapp
+)
+```
+
+Det finns fyra varianter med samma parametrar:
+
+| Funktion | Typ | Enhet |
+|----------|-----|-------|
+| `postgis_isokroner_bil()` | Bil | minuter |
+| `postgis_isokroner_gang()` | Till fots | minuter |
+| `postgis_isokroner_cykel()` | Cykel | minuter |
+| `postgis_isokroner_meter()` | Fågelvägen | meter |
+
+# Övriga hjälpfunktioner
+
+## `postgres_felmeddelande()` — formatera felmeddelande
+
+Intern hjälpfunktion som identifierar om ett PostgreSQL-fel beror på bristande behörighet och formaterar ett tydligare felmeddelande med råd om att använda `uppkoppling_adm()`.
+
+## `logga_event()` — logga händelser till fil
+
+Enkel loggfunktion för att skriva tidsstämplade meddelanden till en loggfil. Används i automatiserade skript.
+
+```r
+logga_event("Uppdatering av befolkningstabellen lyckades",
+            log_file = "C:/auto_scheduler/loggfiler/logg.txt")
+```
+
+## `fil_dataset_uppdaterades()` — hämta filändringsdatum
+
+Returnerar ett ISO 8601-datum för en fils senaste modifieringstid — samma format som `postgres_tabell_uppdaterades()` returnerar. Används för att jämföra om en källfil är nyare än databastabellen.
+
+```r
+fil_dataset_uppdaterades("G:/data/befolkning.xlsx")
+# Returnerar t.ex. "2024-03-15T08:30:00Z"
+```
+
+## `postgres_test()` — visa rollärv
+
+Listar alla roll-arvs-relationer på servern (vilka roller/användare som är medlemmar i vilka roller).
+
+```r
+postgres_test(con)
+```
+
+# Sammanfattning
+
+**Uppkoppling:**
+
+- `uppkoppling_db()` — standard läsuppkoppling mot geodata-databasen
+- `uppkoppling_adm()` — administrativ uppkoppling via keyring
+
+**Användare och roller (kräver admin):**
+
+- Skapa: `postgres_anvandare_lagg_till()`, `postgres_roll_lagg_till()`
+- Ta bort: `postgres_anvandare_ta_bort()`, `postgres_roll_ta_bort()`
+- Tilldela: `postgres_roll_tilldela_till_anvandare()`
+- Återkalla: `postgres_roll_ta_bort_fran_anvandare()`
+
+**Behörigheter (kräver admin):**
+
+- Lägg till: `postgres_rattigheter_anvandare_lagg_till()`
+- Ta bort: `postgres_rattigheter_anvandare_ta_bort()`
+- Auto-grants: `postgres_grants_auto_skapa()` installerar event triggers som ger rättigheter automatiskt vid CREATE TABLE
+
+**Granska:**
+
+- `postgres_lista_roller_anvandare()`, `postgres_alla_rattigheter()`, `postgres_alla_rattigheter_server()`
+
+**Läsa data:**
+
+- `postgres_tabell_till_df()` — hämta tabell som dataframe
+- `postgis_postgistabell_till_sf()` — hämta geografisk tabell som sf-objekt
+- `postgres_hamta_oppnadata()` / `oppnadata_hamta()` — hämta från öppna data-databasen
+
+**Skriva data:**
+
+- `postgres_df_till_postgrestabell()` — skriv dataframe till PostgreSQL
+- `postgis_sf_till_postgistabell()` — skriv sf-objekt till PostGIS
+- `postgres_databas_skriv_med_metadata()` / `postgis_databas_skriv_med_metadata()` — skriv med automatisk metadatalogning
+
+**Metadata:**
+
+- `postgres_metadata_uppdatera()` — logga uppdatering manuellt
+- `postgres_tabell_uppdaterades()` — hämta senaste uppdateringsdatum
+- `postgres_pxweb2_uppdatera_tabell()` — automatisk synkronisering från PxWeb2

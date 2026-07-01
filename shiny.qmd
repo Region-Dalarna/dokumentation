@@ -1,0 +1,1937 @@
+---
+title: "Arbetssätt med Shiny"
+#subtitle: "Samhällsanalys, Region Dalarna"
+author: "Samhällsanalys, Region Dalarna"
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+lang: sv
+format:
+  html:
+    include-in-header: www/favicon.html
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Inledning
+
+På denna sida beskriver vi hur vi arbetar med skapande, förvaltning, uppdatering och publicering av våra Shiny-rapporter och statiska webbrapporter (RMarkdown/Quarto) samt även hur vi installerar och konfigurerar en Shiny-server. Syftet är att ha ett smidigt, snabbt och säkert flöde där endast kvalitetssäkrade versioner skickas till vår Shiny-server, samt även att ha dokumentation på hur vi installerar och konfigurerar en Shiny-server för att kunna felsöka eller vid behov installera fler servrar.
+
+Webbrapporterna serveras från samma Shiny-server som Shinyapparna men under en egen domän (`samhallsanalys.regiondalarna.se`). De följer samma branch-modell (`master` + `publicera`) och Github Actions-flöde som Shinyapparna, men publiceras genom ett gemensamt repo (*samhallsanalys-rapporter*) och en egen R-funktion `webbrapport_publicera()`.
+
+## Vem är detta för — och var ska jag börja läsa?
+
+Det här dokumentet är skrivet för tre olika roller. Du behöver normalt bara läsa den del som matchar det du faktiskt ska göra.
+
+:::{.callout-tip}
+## 🧑‍💻 Du ska skapa eller revidera en Shinyapp
+Läs avsnittet **[Shinyappar](#shinyappar)**. Börja med *En kort introduktion till Shiny* om du är ny, eller hoppa direkt till *TL;DR* om du redan vet vad Shiny är.
+
+Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-server*.
+:::
+
+:::{.callout-tip}
+## 📄 Du ska skapa eller revidera en statisk webbrapport (RMarkdown/Quarto)
+Läs avsnittet **[Webbrapporter](#webbrapporter)**. Det är kort och fokuserat på publiceringsflödet via `webbrapport_publicera()`.
+
+Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-server*.
+:::
+
+:::{.callout-warning}
+## 🛠️ Du ska installera, konfigurera eller felsöka själva Shiny-servern
+Läs avsnittet **[Installation och konfigurering av Shiny-server](#installation-konfigurering-shinyserver)**. Det är teknisk dokumentation för de få som hanterar servermiljön.
+
+Som vanligt användare behöver du **inte** läsa detta avsnitt — Shiny-servern sköter sig själv tack vare GitHub Actions och deploy-skripten.
+:::
+
+# Shinyappar{#shinyappar}
+Här beskrivs hur man skapar, reviderar och publicerar Shinyappar. Arbetet sker lokalt på regiondatorn: man pullar ner repot för appen, gör sina ändringar och commit:ar och pushar till GitHub. Själva publiceringen till Shiny-servern sköts av GitHub Actions och triggas av funktionen *shinyapp_publicera()* i filen *func_API.R* — du behöver alltså aldrig logga in på servern i det vardagliga arbetet. Detta gäller den publika Shiny-servern i DMZ (åtkomlig externt). Arbetsprocessen för den interna Shiny-servern är inte klar ännu.
+
+## TL;DR
+
+Snabbstart för dig som vill komma igång direkt:
+
+* **Skapa en ny Shinyapp:**
+```r
+shinyapp_skapa_med_github_repo("appnamn")
+```
+*appnamn* blir både repo-namn och url på webben — håll det kort och koncist, men inte så snävt att det stänger dörren för närliggande appar.
+
+* **Hämta senaste versionen innan du börjar revidera:**
+```r
+github_pull_lokalt_repo_fran_github("appnamn")
+```
+
+* **Commit + push när du är klar med ändringarna:**
+```r
+github_commit_push("appnamn", commit_txt = "Beskrivning av ändringen")
+```
+
+* **Publicera till Shiny-servern när `master` är redo:**
+```r
+shinyapp_publicera("appnamn")
+```
+
+Alla funktioner ovan finns i *func_API.R*. För datahämtning från våra databaser, se [Datainhämtning från våra postgres-databaser](#datainhamtning-postgres).
+
+### Förberedelser på en ny dator
+
+Innan du kan börja jobba med Shinyappar på en ny dator behöver två saker vara på plats:
+
+1. **Lösenord för våra Postgres-/PostGIS-databaser.** Apparna behöver det för att hämta data. Enklaste sättet att lägga in det är att öppna *G:/skript/shiny_intern/github_shiny_konfiguration/app.R* i RStudio och klicka *Run App*. Längst ner i appen finns avsnittet *Lösenordshantering i Shinyappar* — om du inte ser en grön bock och texten *Redan konfigurerad*, klicka på *Lägg till*. Lösenordet sparas då lokalt och Shinyappar kan hämta data både lokalt vid testning och i produktion. Du gör det här en gång per dator.
+
+   Om din app ska hämta sekretessbelagd data eller data för ruttanalyser räcker inte detta — då behöver du även konfigurera en särskild användare, se [Särskild användare för sekretessbelagd data och ruttanalyser](#sarskild-anvandare-sekretess).
+
+2. **Git-konfiguration** (se avsnittet *Git-konfiguration på nya datorer* nedan).
+
+Samma app visar också vad som behöver konfigureras för GitHub i RStudio så att funktionerna i *func_API.R* fungerar. Det rekommenderas varmt — se dokumentationen genom att köra *G:/skript/dokumentation/index_shinyapp.R* och klicka *Run App*.
+
+För att kunna hämta data behöver dina Shinyappar source:a in hjälpfunktionerna från *func_shinyappar.R*:
+```r
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_shinyappar.R", encoding = "utf-8", echo = FALSE)
+```
+
+### Git-konfiguration på nya datorer
+
+På en ny dator (eller en dator där du inte tidigare har jobbat med git från R) behöver `user.name` och `user.email` vara satta i den globala git-konfigurationen. Annars kan `shinyapp_publicera()` failera vid själva merge:n med felmeddelandet:
+
+> `libgit2: Signature cannot have an empty name or email`
+
+Det här slår bara till när merge:n inte är fast-forward, dvs. när det finns en faktisk merge-commit att skapa. Sätt det en gång per dator:
+
+```bash
+git config --global user.name "Förnamn Efternamn"
+git config --global user.email "din.epost@regiondalarna.se"
+```
+
+## En kort introduktion till Shiny
+
+**Shiny** är ett ramverk i R för att skapa **interaktiva rapporter och webbappar**. Användaren kan göra val (t.ex. via menyer, knappar eller reglage) och direkt se hur tabeller, diagram eller kartor uppdateras.
+
+### Grundidé
+En Shiny‑app består av två huvuddelar:
+
+- **`ui` (user interface)**
+  Beskriver **hur det ser ut**: layout, inmatningsfält, diagram och text som visas för användaren.
+
+- **`server`**
+  Beskriver **vad som händer**: beräkningar, filtrering av data och hur resultat uppdateras när användaren gör ett val.
+
+Man kan förenklat tänka:
+> **ui = presentation**
+> **server = logik**
+
+### Hur fungerar det i praktiken?
+När användaren ändrar något i gränssnittet (t.ex. väljer år eller region) skickas detta till server‑delen, som räknar om och skickar tillbaka uppdaterade resultat till gränssnittet.
+
+### Hur kan man tänka när man bygger Shiny?
+- Utgå från **användarens fråga**, inte från koden
+- Tänk i **interaktioner**: vad ska gå att ändra?
+- Håll det **enkelt och tydligt**
+- Börja gärna statiskt och lägg till interaktivitet stegvis
+
+Shiny passar särskilt bra för **uppföljning, utforskning av data och beslutsstöd**. Våra webbrapporter i RMarkdown/Quarto använder vi primärt för att skapa berättelser. Där är det bra om vi inte lägger in för många diagram och dessa ska främst vara relativt statiska. När vi vill erbjuda kollegor och samarbetsaktörer att kunna vrida och vända på data så är Shinyappar ett bra verktyg.
+
+Nedan är några rekommenderade resurser för att lära sig det grundläggande om Shiny. Det är klokt att skaffa sig grundläggande kunskaper om Shiny. Då kommer man att kunna skapa och revidera appar än bättre med hjälp av Copilot 365 och andra generativa AI-verktyg.
+
+## Vad bör man kunna för att revidera en Shiny‑app?
+
+Syftet med detta avsnitt är **inte** att du ska kunna bygga Shiny‑appar från grunden, utan att du tryggt ska kunna **läsa, förstå och göra mindre revideringar** i befintliga appar inom Samhällsanalys.
+
+Med grundkunskaperna nedan kommer du långt i vårt arbetssätt.
+
+### Förstå vår grundstruktur
+
+Alla våra Shiny‑appar följer i huvudsak samma struktur:
+
+- `.github/` är en av två mappar som ligger i repositoryt och den innehåller filer som behövs för att GitHub Actions ska kunna deploya appen till Shiny-servern, "deploya" innebär att appen "skjuts ut" till servern så att vi slipper kopiera filerna dit manuellt. Den här mappen behöver man normalt sett inte bry sig om.
+- `app/` är den andra mappen som finns och den innehåller all Shiny‑kod som deployas till servern, det är här själva appen finns. Det är här vi  arbetar när vi reviderar appen. I mappen ligger ett antal filer och undermappar.
+- `ui.R` styr **layout och utseende**. Här gör man ändringar när man vill ändra utseendet på Shinyappen, tex. lägga till kartor, diagram, filter, flikar, listrutor m.m. Vad som händer när man använder dessa kontroller genom att klicka på dem, röra musmarkören över dem etc. styrs i *server.R*.
+- `server.R` innehåller **logik, beräkningar och reaktivitet**, egentligen allt som händer när en app laddas eller när användare interagerar med appen.
+- `global.R` används för:
+  - paketladdning
+  - globala inställningar
+  - gemensamma objekt som används i både ui och server
+  - om data laddas som aldrig kommer att behöva modifieras kan det göras här, men oftast gör vi det i `server.R`.
+- `R/` innehåller hjälpfunktioner och moduler som används i `ui.R` och `server.R`. Det kan vara allt från funktioner för att hämta data, bearbeta data, skapa diagram eller kartor, eller moduler som skapar återanvändbara UI‑komponenter.
+- `www/` är en mapp med innehåll som används för att stilsätta Shinyappen. Här ligger t.ex. favicon som blir den lilla ikonen på fliken i webbläsaren som appen startas i, CSS-fil(er) för stilsättning som standardiseras, loggor, ikoner, bilder m.m. som används för att bidra till Shinyappens layout. Inom kort hoppas vi ha en standardiserad CSS-fil som finns med när appen skapas.
+
+Att kunna orientera sig i denna struktur är ofta tillräckligt för att hitta **rätt plats att göra en ändring på**. Den här strukturen är en vedertagen struktur i Shinyappar och skapas automatiskt när en ny Shinyapp skapas med funktionen *shinyapp_skapa_med_github_repo()* som finns i *func_API.R*.
+
+### Kunna följa flödet: input → server → output
+
+En central färdighet är att kunna följa hur användarens val påverkar appen:
+
+1. Något definieras i `ui.R` (t.ex. `selectInput()`, `sliderInput()`)
+2. Värdet läses i `server.R` via `input$...`
+3. Något renderas via t.ex.:
+   - `renderPlot()`
+   - `renderTable()`
+   - `renderDT()`
+4. Resultatet visas i UI via motsvarande `plotOutput()`, `tableOutput()` eller `DTOutput()`
+
+Att kunna spåra detta flöde räcker långt för att:
+- justera filter
+- ändra beräkningar
+- koppla till nya variabler
+
+### Grundläggande förståelse för reaktivitet
+
+Shiny bygger på **reaktivitet**, vilket kort innebär att:
+- kod körs **automatiskt om** när något den beror på ändras
+
+För revidering räcker det oftast att känna igen:
+- `render*()` – skapar reaktiva outputs
+- `reactive()` – används ibland för mellanobjekt, det är som variabler för Shinyappar som kan förändras när en kontroll ändras i appen.
+- `observe()` / `observeEvent()` – används för att styra uppdateringar när användaren ändras olika kontroller i appen, tex. väljer ett värde i en listruta eller väljer en annan flik, klickar i ett diagram eller i en karta etc.
+
+Man behöver inte kunna allt i detalj – det viktiga är att veta **att kod kan köras om utan att man explicit anropar den**.
+
+### Veta var data hämtas och bearbetas
+
+I våra appar hämtas data i princip uteslutande:
+- från Postgres/PostGIS via våra hjälpfunktioner
+- antingen som hela tabeller eller filtrerade uttag via `dbplyr`
+
+För revidering är det bra att kunna:
+- identifiera **var data läses in**
+- se om data hämtas:
+  - en gång i `global.R`
+  - eller dynamiskt i `server.R`
+- förstå skillnaden mellan geodata (`sf`) och vanliga data.frames
+
+### Förstå vad man *inte* behöver kunna
+
+För att revidera appar inom Samhällsanalys behöver du normalt **inte**:
+- arbeta direkt på Shiny‑servern
+- ändra GitHub Actions eller deployment‑skript
+- hantera lösenord mer än via våra hjälpfunktioner
+- kunna HTML, CSS eller JavaScript
+
+Det mesta sker lokalt, i `ui.R`, `server.R` och ibland `global.R`.
+
+### Rekommenderat arbetssätt vid revidering
+
+1. Kör `github_pull_lokalt_repo_fran_github()`
+2. Identifiera vad som ska ändras (UI, logik eller data)
+3. Gör ändringen lokalt
+4. Testkör appen lokalt
+5. Commit + push till `master`
+6. Publicera färdig version via `shinyapp_publicera()`
+
+## Rekommenderade resurser för introduktion till Shiny
+
+Följande resurser är särskilt lämpliga för nybörjare som vill få en grundförståelse för Shiny för att kunna läsa, förstå och revidera befintliga Shiny‑appar.
+
+### Shiny Basics (Posit / RStudio)
+<https://shiny.posit.co/r/getstarted/shiny-basics/lesson1/>
+
+Officiell introduktion från Posit. Förklarar på ett pedagogiskt sätt hur Shiny är uppbyggt, vad `ui` och `server` gör samt hur användarens val (input) leder till uppdaterade resultat (output). Mycket bra startpunkt.
+
+### Mastering Shiny (gratis onlinebok)
+<https://mastering-shiny.org/>
+
+En djupare men fortfarande lättillgänglig resurs skriven av Hadley Wickham. Särskilt värdefull för att förstå **reaktivitet**, vilket ofta är nyckeln till att kunna felsöka och ändra Shiny‑appar på ett säkert sätt. Rekommenderade kapitel för nybörjare är de första 3–5 kapitlen.
+
+### Beginner's Guide to Creating an R Shiny App (Towards Data Science)
+<https://towardsdatascience.com/beginners-guide-to-creating-an-r-shiny-app-1664387d95b3/>
+
+En praktisk genomgång som visar hur Shiny‑appar vanligtvis struktureras och hur UI och server samverkar. Bra som komplement till den officiella dokumentationen.
+
+### Shiny Fundamentals (Datanovia)
+<https://www.datanovia.com/learn/tools/shiny-apps/fundamentals/>
+
+En mer kursliknande introduktion med tydlig progression från grunder till lite mer avancerade begrepp. Passar bra för den som vill läsa steg‑för‑steg.
+
+## Skapa en Shinyapp
+För att underlätta skapandet av nya Shinyappar har vi tagit fram ett skript som skapar ett R-projekt, ett lokalt git-repository och ett repository på Github. Strukturen är anpassad för att kunna publicera rapporten enkelt med hjälp av Github Actions och runners (se mer om publicering av rapporter nedan). Mappar och filer som behövs till det skapas av funktionen och även den struktur som vi brukar använda i våra Shiny-appar. Funktionen heter shinyapp_skapa_med_github_repo() och behöver vanligtvis enbart ett repository-namn som parameter för att kunna köras, övriga parametrar kan lämnas orörda (om man har sina lokala github-repositories på *c:/gh/*). Repository-namnet (första parametern som heter github_repo) kommer också att utgöra app-namnet när appen publiceras på Shiny-servern.
+```r
+shinyapp_skapa_med_github_repo("appnamn")
+```
+skapar alltså ett R-projekt, ett lokalt git-repository, ett Github-repository och när den publiceras en Shiny-app som heter **appnamn** och som kommer att få webb-adressen *https://shiny.regiondalarna.se/brott*. Skriptet skapar alltså en lokal mapp, ett github-repository samt de mappar och filer som behövs. Har man redan skript (tex server.R och UI.R) så kan man med fördel skapa Shinyappen med skriptet enligt ovan och i efterhand kopiera de filer man redan har till mappen.
+
+## Flöde för att uppdatera Shinyapp respektive publicera en ny version
+
+Den branch vi jobbar i är `master`. Den kommer inte att publiceras till Shinyservern och tillgängliggöras publikt. När vi känner att `master` är färdig för att publicera publikt kör vi skriptet *shinyapp_publicera()* med namnet på appen som enda parameter. Då merge:as `master` in i produktionsbranchen (`publicera-publik` för publika servern) så att dessa brancher blir likadana. Därefter kan man fortsätta utveckla `master` till man känner att den nya versionen är redo att publicera och då kör man funktionen *shinyapp_publicera()* igen. Uppdatering av appen sker på samma sätt som andra Github-repositories, man kör pull innan man börjar för att säkerställa att man har senaste versionen från Github:
+```r
+github_pull_lokalt_repo_fran_github("appnamn")
+```
+Därefter gör man sina revideringar och när man känner sig klar kan man köra en commit och push till Github:
+```r
+github_commit_push("appnamn", commit_txt = "Ny knapp med funktionen att kunna ladda ner hela dataset.")
+```
+
+Då startas GitHub Actions automatiskt och kör:
+```bash
+shiny_deploy.sh "$TEMP_DIR"
+```
+Appen skjuts ut till Shiny-servern och den nya versionen är i produktion.
+
+**No-op-skydd:** Om `master` redan är identisk med produktionsbranchen när merge:n körs (t.ex. om man kör `shinyapp_publicera()` två gånger utan ändringar emellan) skapar funktionen automatiskt en tom commit innan push. Det säkerställer att GitHub Actions triggas även när merge:n inte producerar nya commits — annars skulle deployen tystas och appen riskera att ligga kvar på en gammal version utan att man märker det. Commit-meddelandet är medvetet hyphen-separerat (`Trigga-deploy-publicera-publik`) eftersom Windows cmd.exe annars tokeniserar meddelandet på mellanslag och parenteser, vilket bröt funktionen tidigare.
+
+**Viktigt:** Merge tar aldrig bort brancher. Både `master` och produktionsbranchen finns kvar efter merge.
+
+### Avpublicera en app
+
+Om en app ska tas bort från servern används:
+```r
+shinyapp_avpublicera("appnamn")
+```
+Funktionen triggar `avpublicera.yml`, som kör `sudo rm -rf` på app-katalogen och startar om Shiny Server. Repot på GitHub påverkas inte — du kan publicera igen när du vill.
+
+### Flytta en app mellan servrarna
+
+```r
+shinyapp_flytta("appnamn", till = "intern")   # eller till = "publik"
+```
+Funktionen **publicerar på målservern först** och river källservern först när den nya appen svarat HTTP 200 — så man hamnar aldrig utan app. Testa den gärna första gången på `test_nya_deploy`, inte på en skarp app, så att du ser hela förloppet i lugn och ro.
+
+## Struktur för våra Shiny-repositories
+
+Varje repo har denna struktur:
+```
+repo/
+├── ui.R
+├── server.R
+├── global.R
+├── R/
+│   └── t.ex. funktioner.R
+├── www/
+│   ├── favicon.ico
+│   ├── regiondalarna_ruf.css
+│   └── app.css
+├── renv/
+│   └── activate.R
+├── renv.lock
+├── .Rprofile
+├── .github/
+│   └── workflows/
+│       ├── deploy.yml
+│       └── avpublicera.yml
+├── _dependencies.R
+├── _publicering_till_server.yml
+├── .gitignore
+├── README.md
+└── repo.Rproj
+```
+
+### Appfilerna ligger i repo-roten
+
+Till skillnad från tidigare ligger `ui.R`, `server.R`, `global.R`, `R/` och `www/` direkt i repo-roten — inte i någon `app/`-undermapp. Det är hela repo-roten som deployas till Shiny-servern via GitHub Actions.
+
+Anledningen är viktig att känna till: en `app.R` i roten som kör `runApp('app')` startar en *inre* app i en undermapp på en port som Shiny Server inte känner till. Resultatet blir att appen visserligen lyssnar, men att Shiny Server aldrig får kontakt — felet visar sig som *"took too long to respond"*. Genom att lägga appfilerna direkt i roten kör Shiny Server appen utan omväg, precis som den förväntar sig.
+
+Bredvid appfilerna ligger renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) som styr paketversioner — se avsnittet [renv-miljö på Shiny-servern](#renv-shinyserver).
+
+#### global.R
+
+* Laddar paket: `shiny`, `shinyjs`, `shinyWidgets`, `DT`, `ggiraph`, `dplyr`, `ggplot2`
+* Innehåller globala inställningar och konstanter.
+
+#### ui.R
+
+* Definierar användargränssnittet
+* Innehåller automatiskt favicon och Region Dalarnas CSS via `tags$head()`
+
+#### server.R
+
+* Innehåller all serverlogik.
+
+#### R/
+
+* Skript med funktioner och moduler.
+
+#### www/
+
+* Favicon, logotyp, CSS (`regiondalarna_ruf.css` + appens egen `app.css`) och typsnitt.
+
+### .github/workflows/deploy.yml
+
+* Workflow-filen för GitHub Actions
+* Konfigurerad så att deployment sker vid push till `publicera-publik` (publika servern) eller `publicera-intern` (interna servern):
+```yaml
+on:
+  push:
+    branches: [ publicera-publik, publicera-intern ]
+  workflow_dispatch:
+```
+
+## Branch-struktur i våra Shiny-repon
+
+Varje Shiny-applikation ligger i ett eget GitHub-repo med tre brancher som fyller olika roller:
+
+### 1. master – arbetsbranch
+
+* Här sker allt löpande utvecklingsarbete.
+* Nya funktioner, bugfixar och layoutförändringar görs på denna branch.
+* Alla pushar hit är helt säkra – ingen deploy sker automatiskt.
+
+### 2. publicera-publik / publicera-intern – produktionsbrancher (deploy-trigger)
+
+* En push till `publicera-publik` deployar till den publika servern, en push till `publicera-intern` till den interna.
+* Du skapar eller uppdaterar dem inte för hand — `shinyapp_publicera()` och `shinyapp_flytta()` sköter merge och push åt dig.
+* När en av brancherna uppdateras uppdateras också motsvarande appkatalog på rätt Shiny-server: `/srv/shiny-server/<appnamn>`.
+
+:::{.callout-note}
+Vid **första** publiceringen av en ny app sker två deployer: funktionen skapar produktionsbranchen och pushar den, och pushar sedan själva merge:n från `master`. Det är väntat beteende, inte ett fel. Efterföljande publiceringar ger en enda deploy.
+:::
+
+### 3. (Valfritt) andra feature-brancher
+
+* Vid större utveckling kan man skapa kortlivade brancher som sedan mergas in i `master`.
+
+## Paket och renv i en Shiny-app
+
+Varje Shiny-app har sin egen låsta uppsättning paketversioner med hjälp av **renv**. Det betyder att appen alltid kör mot exakt de paketversioner den testats med — både hos dig lokalt och i produktion på Shiny-servern — oavsett vad som råkar vara installerat globalt på din dator. Det är så vi undviker att en app slutar fungera för att ett paket uppdaterats någon helt annanstans.
+
+### Hur det fungerar i korthet
+
+* Appen har en fil `renv.lock` i repo-roten som listar varje paket och dess exakta version.
+* En `.Rprofile` (också i roten) gör att renv **aktiveras automatiskt när du öppnar appens projekt** i RStudio. Då jobbar du i appens egna paketbibliotek (`renv/library/`), inte ditt globala.
+* När appen deployas läser servern `renv.lock` och återskapar precis samma paketmiljö.
+
+Du behöver inte tänka på servern — men du behöver veta hur du lägger till eller uppdaterar paket på rätt sätt, så att `renv.lock` hålls i synk med koden.
+
+### Installera eller uppdatera ett paket
+
+Arbeta alltid med appens projekt **öppnat** (så att renv är aktivt för just den appen).
+
+**1. Kontrollera utgångsläget** (valfritt men nyttigt):
+
+```r
+renv::status()   # visar om lockfil, bibliotek och kod är i synk
+```
+
+**2. Installera paketet** i appens bibliotek — senaste versionen eller en specifik:
+
+```r
+renv::install("paketnamn")          # senaste från CRAN
+renv::install("paketnamn@1.2.3")    # specifik version
+```
+
+Detta rör bara appens *lokala* bibliotek. `renv.lock` är ännu orörd, så inget är publicerat.
+
+**3. Använd paketet i koden och testa appen lokalt:**
+
+```r
+shiny::runApp()
+```
+
+Fungerar allt? Bra, gå vidare. Gör det inte det kan du backa utan spår tillbaka till de låsta versionerna:
+
+```r
+renv::restore()   # ångrar installationen ovan
+```
+
+**4. Lås den nya versionen i `renv.lock`** när du är nöjd:
+
+```r
+renv::snapshot()   # skriver projektets nuvarande paketversioner till renv.lock
+```
+
+**5. Commit och publicera** — den nya versionen följer med som vilken kodändring som helst:
+
+```r
+github_commit_push("appnamn", commit_txt = "Lägg till paketet X")
+shinyapp_publicera("appnamn")
+```
+
+### Två vanliga situationer
+
+* **Du har klonat en app eller hämtat någons ändringar** som lagt till ett paket. Kör `renv::restore()` så installeras exakt de paket `renv.lock` anger — då har du samma miljö som den som gjorde ändringen.
+* **`renv::status()` klagar på att något är ur synk.** Har du installerat ett paket men glömt `renv::snapshot()`? Kör snapshot. Är det tvärtom (lockfilen har paket du inte installerat)? Kör `renv::restore()`.
+
+:::{.callout-note}
+Glöm inte `renv::snapshot()` efter att du lagt till ett paket — annars saknas det i `renv.lock`, och appen failar vid deploy på servern (paketet finns hos dig men inte i lockfilen). Tumregel: installerade du något nytt som koden använder, kör snapshot innan du publicerar.
+:::
+
+Vill du veta mer om hur renv fungerar på servern — den delade paketcachen, hur paket byggs och varför vissa deployer tar längre tid — finns en fördjupning i [renv-miljö på Shiny-servern](#renv-shinyserver). Men för att bygga appar räcker stegen ovan.
+
+## Datainhämtning från våra postgres-databaser{#datainhamtning-postgres}
+Det finns en portöppning från Shiny-servern som möjliggör inhämtning av data från någon av våra postgres-databaser på wfalmitvs526, såsom *geodata*, *oppna_data* m.fl. Eftersom dessa databaser ajourhålls säkerställer vi att det alltid är aktuell data i våra Shinyappar.
+
+### Lösenordshantering
+För att inte spara lösenord direkt i skripten så använder vi .Renviron lokalt på våra datorer för testning, samt samma fil på Shiny-servern i produktion. Den senare måste sparas med användaren *shiny* för att det ska fundera när Shinyapparna körs på servern, då det är användaren *shiny* som kör apparna. Keyring-paketet som används för just detta ändamål i andra sammanhang fungerar inte på Shiny-servern, därav en annan lösning. Det har skapats fyra funktioner som sköter lösenordshanteringen för Shinyappar, dessa funktioner ligger i filen *func_shinyappar.R* och heter:
+```r
+shiny_set_password("service")
+shiny_get_password("service")
+shiny_delete_password("service")
+shiny_list_passwords()
+```
+Funktionerna gör vad det låter som och lösenorden lagras i .renviron-filen. "service" är benämningen på den service som lösenordet gäller. För Shinyappar används servicen "shiny_las" för att läsa från våra databaser, och "shiny_skriv" finns om det finns behov av att skriva till databasen. *shiny_set_password()* skapar nya lösenord och behöver parametern "service", som inte får innehålla mellanslag eller svenska tecken. *shiny_get_password()* behöver parametern "service" och hämtar ett lösenord för "service" som finns sparad i .Renviron. Det är funktionen som används för att ange lösenord när en postgres-databas anropas från Shiny-servern. *shiny_delete_password()* behöver parametern "service" och tar bort ett befintligt lösenord som är inlagt, används med försiktighet. Om man vill se alla lösenord som är skapade redan så används *shiny_list_passwords()*.
+
+På region-datorn eller på en vm (serveryta) kör man bara funktionerna ovan, för att lägga in eller byta lösenord. Normalt lägger man bara in lösenordet en gång per "service" och dator/användare, vilket innebär att man nästan aldrig kommer att behöva lägga in lösenorden *shiny_las* eller *shiny_skriv* på Shiny-servern. Men vid byte av server eller behov av annan service eller byte av lösenord så följer instruktioner för hur man gör nedan, under avsnittet [Installation och konfigurering av Shiny-server](#installation-konfigurering-shinyserver)
+
+#### Särskild användare för sekretessbelagd data och ruttanalyser{#sarskild-anvandare-sekretess}
+
+Vissa uttag rör data som inte ska vara tillgänglig för alla — det gäller dels uppgifter med sekretess, dels data som används för ruttanalyser. För dessa räcker det **inte** med den vanliga servicen *shiny_las*, utan man behöver en egen, särskild användare: *shiny_las_sekretess*.
+
+Tänk på *shiny_las_sekretess* som en egen "nyckel" utöver *shiny_las* — precis samma mekanik som för de vanliga lösenorden, men kopplad till en användare med utökad behörighet i databasen. Den konfigureras på exakt samma sätt som *shiny_las* och *shiny_skriv*, fast med ett eget service-namn:
+
+```r
+shiny_set_password("shiny_las_sekretess")
+```
+
+Detta gör man en gång per dator/användare (lokalt vid testning) och, vid behov, en gång på Shiny-servern enligt samma rutin som beskrivs i [Installation och konfigurering av Shiny-server](#installation-konfigurering-shinyserver).
+
+:::{.callout-warning}
+## Kom ihåg
+Om din app ska hämta sekretessbelagd data eller data för ruttanalyser räcker det inte att bara source:a in *func_shinyappar.R* — du måste **också** ha konfigurerat *shiny_las_sekretess* enligt ovan, annars failar uppkopplingen mot databasen även om *shiny_las* fungerar utmärkt för övriga uttag.
+:::
+
+Till skillnad från de vanliga uttagen räcker det inte att bara ange databasnamnet när man kopplar upp sig — eftersom inloggningen sker med en annan användare än standard måste man också ange `db_user`-parametern explicit:
+
+```r
+con <- shiny_uppkoppling_las("sekretess", db_user = "shiny_las_sekretess")
+rad <- dplyr::tbl(con, dbplyr::in_schema("mikro_db",
+                                         "gymnasiet_uppfoljning_raks")) |>
+  dplyr::collect()
+DBI::dbDisconnect(con)
+```
+
+### Göra uttag från postgres till Shinyappar
+Det finns fyra huvudsakliga sätt att ta ut data från våra Postgres-databaser:
+
+1. Hämta hela datasetet som geodata
+2. Hämta delar av datasetet som geodata och kanske göra vissa bearbetningar, såsom att döpa om variabler m.m.
+3. Hämta hela datasetet som **inte** är geodata
+4. Hämta delar av datasetet som **inte** är geodata och kanske göra vissa bearbetningar, såsom att döpa om variabler m.m.
+
+#### Hämta hela dataset som geodata
+```r
+con <- shiny_uppkoppling_las("geodata")                                                  # skapa anslutning
+kommuner_sf <- st_read(con, layer = Id(schema = "karta", table = "kommun_scb")) %>%
+      st_transform(4326)                                                                 # transformera till WGS84 för användning i leaflet
+DBI::dbDisconnect(con)                                                                   # stäng anslutning
+```
+
+#### Hämta delar av dataset som geodata
+```r
+con <- shiny_uppkoppling_las("geodata")                                                  # skapa anslutning
+dalakommuner_sf <- tbl(con, dbplyr::in_schema("karta", "kommun_scb")) %>%                # använd dbplyr för att hämta delar av tabellen
+  filter(str_sub(knkod, 1, 2) == "20") %>%                                               # filtrera ut Dalarnas kommuner
+  collect() %>%                                                                          # först här görs uttaget ur databasen
+  df_till_sf()                                   # egen funktion för att återskapa geometrikolumnen och skapa ett sf-objekt
+DBI::dbDisconnect(con)                           # stäng anslutning
+```
+
+#### Hämta hela dataset (men inte som geodata)
+```r
+con <- shiny_uppkoppling_las("oppna_data")                                                  # skapa anslutning
+gastnatter_utlandska_df <- tbl(con, dbplyr::in_schema("tillvaxtverket", "gastnatter_utlandska_lan")) %>%      # använd dbplyr för att hämta delar av tabellen
+  collect()                                                               # transformera till WGS84 för användning i leaflet
+DBI::dbDisconnect(con)                                                                   # stäng anslutning
+```
+
+#### Hämta delar av dataset (men inte som geodata)
+```r
+con <- shiny_uppkoppling_las("oppna_data")                                                  # skapa anslutning
+gastnatter_utlandska_df <- tbl(con, dbplyr::in_schema("tillvaxtverket", "gastnatter_utlandska_lan")) %>%      # använd dbplyr för att hämta delar av tabellen
+  filter(år >= 2015) %>%                                                  # filtrera ut data från och med 2015
+  rename(`Antal gästnätter` = antal) %>%                                  # döp om variabel
+  collect()                                                               # transformera till WGS84 för användning i leaflet
+DBI::dbDisconnect(con)                                                                   # stäng anslutning
+```
+Det är således lite olika tekniker beroende på om vi jobbar med geodata eller inte, och huruvida vi vill ta ut hela databas-tabellen eller inte. Det går också att använda DBI-funktioner för att läsa hela tabeller eller att skicka med SQL-kod direkt:
+```r
+con <- shiny_uppkoppling_las("oppna_data")                                      # skapa anslutning
+dataset_df <- DBI::dbReadTable(con, Id(schema = "tillvaxtverket", table = "gastnatter_utlandska_lan"))       # Med DBI/RPostgres
+dataset_df <- DBI::dbGetQuery(con, "SELECT * FROM tillvaxtverket.gastnatter_utlandska_lan")                  # Eller med SQL-query
+DBI::dbDisconnect(con)
+```
+
+# Webbrapporter{#webbrapporter}
+
+Förutom interaktiva Shinyappar publicerar vi även statiska webbrapporter renderade från RMarkdown eller Quarto. De serveras under `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` och hanteras i ett gemensamt Github-repo: *samhallsanalys-rapporter*. Varje rapport bor i sitt eget källrepo under `c:/gh/<rapportnamn>/` med en `.qmd`- eller `.Rmd`-fil — det är där det vardagliga skrivandet sker. Publiceringen sker sedan med funktionen `webbrapport_publicera()`.
+
+## TL;DR
+
+* Skapa/revidera rapporten i rapportens egna repo (`c:/gh/<rapportnamn>/<rapportnamn>.qmd`).
+* Rendera till `<rapportnamn>.html` med `self-contained: true`.
+* Commita och pusha källan + den renderade HTML-filen till `master` i rapport-repot.
+* Publicera till webben:
+```r
+webbrapport_publicera("rapportnamn")
+```
+
+Funktionen finns i *dalarnasUtilsR* (eller motsvarande hjälpfunktionspaket) tillsammans med `shinyapp_publicera()` och övriga Github-hjälpfunktioner.
+
+## Arbetsflöde
+
+**Viktigt:** Som det är nu (vi får se om vi ändrar det framöver) behöver `.qmd`/`.Rmd`-filen vara klar och commit:ad/pushad i sitt eget repo *innan* `webbrapport_publicera()` körs. Funktionen ändrar inget i rapportens källrepo — den kopierar bara över den renderade HTML-filen till *samhallsanalys-rapporter*-repot och publicerar därifrån. Källrepot behåller alltså sin egen historik, och *samhallsanalys-rapporter* fungerar som ett rent publiceringsregister.
+
+Rekommenderat flöde vid uppdatering av en rapport:
+
+1. Gör revideringar i `.qmd`/`.Rmd`-filen i rapportens egna repo (under `c:/gh/<rapportnamn>/`).
+2. Rendera rapporten lokalt med `self-contained: true` så att HTML-filen är fristående (ingen `_files/`-mapp med beroenden).
+3. Commita och pusha **både källfilen och den renderade HTML-filen** till `master` i rapport-repot.
+4. Kör `webbrapport_publicera("<rapportnamn>")`. Funktionen:
+   * validerar att HTML-filen inte är äldre än motsvarande `.qmd`/`.Rmd`,
+   * kopierar HTML-filen till `c:/gh/samhallsanalys-rapporter/public/<rapportnamn>/index.html`,
+   * commit:ar och pushar till `master` i *samhallsanalys-rapporter*,
+   * gör en *selektiv* merge — endast den enskilda rapportmappen — till `publicera`,
+   * vilket triggar deploy via GitHub Actions till `/srv/rapporter/<rapportnamn>/` på servern.
+
+Den selektiva merge:n är viktig: man uppdaterar en rapport i taget utan att andra rapporter på live-sajten påverkas, även om någon annan rapport har oavslutat arbete i `master`.
+
+## webbrapport_publicera()
+
+Funktionen har följande signatur i förenklad form:
+
+```r
+webbrapport_publicera(
+  rapport_repo,                                            # repo-namn under c:/gh/ där HTML-filen ligger
+  rapport_html_fil = paste0(rapport_repo, ".html"),        # path inom rapport_repo (kan ha undermappar)
+  github_org       = "Region-Dalarna",
+  publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = FALSE  # TRUE: tillåt stale HTML
+)
+```
+
+**Standardfallet** — HTML-filen ligger som `<rapport_repo>.html` i roten av rapport-repot:
+
+```r
+webbrapport_publicera("laget_i_dalarna")
+# → c:/gh/laget_i_dalarna/laget_i_dalarna.html  publiceras som
+#   https://samhallsanalys.regiondalarna.se/laget_i_dalarna/
+```
+
+**Annan källfil i samma repo** — t.ex. om man har flera HTML-utgåvor:
+
+```r
+webbrapport_publicera("laget_i_dalarna", "output/rapport_v2.html")
+# → c:/gh/laget_i_dalarna/output/rapport_v2.html  publiceras som
+#   https://samhallsanalys.regiondalarna.se/rapport_v2/
+```
+
+Eventuella undermappar i `rapport_html_fil` *ignoreras* för målmappens namn — bara HTML-filens basnamn (utan `.html`) styr url:en på webben. Filer utanför `rapport_repo` tillåts inte.
+
+## Källfilskontroll
+
+Funktionen jämför mtime på den renderade HTML-filen med eventuell `.qmd`- eller `.Rmd`-fil med samma stam i samma mapp. Om HTML-filen är äldre stoppas publiceringen — typiskt symptom på att man glömt att rendera om efter senaste revideringen. Vill man publicera ändå:
+
+```r
+webbrapport_publicera("laget_i_dalarna",
+                      publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = TRUE)
+```
+
+Samma kontroll finns även som en pre-commit-hook i *samhallsanalys-rapporter*-repot (icke-interaktiv så att schemalagda jobb funkar). Hooken aktiveras genom att köra en gång per klon:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+## Struktur för samhallsanalys-rapporter
+
+Alla publicerade webbrapporter samlas i ett gemensamt repo:
+
+```
+samhallsanalys-rapporter/
+├── .github/workflows/deploy.yml   # triggar deploy vid push till publicera
+├── .githooks/pre-commit           # stoppar commit om HTML är äldre än .qmd/.Rmd
+├── .gitattributes                 # markerar HTML/CSS/JS som binära
+├── public/                        # allt här deployas till /srv/rapporter/
+│   ├── laget_i_dalarna/
+│   │   └── index.html
+│   └── annan_rapport/
+│       └── index.html
+└── README.md
+```
+
+Strukturen påminner om Shiny-repona men förenklat — det finns ingen `app/`-mapp eftersom allt som publiceras är statiska HTML-filer. Mappen `public/` är den enda som rsync:as ut till servern; filer utanför `public/` (workflow-filer, README m.m.) deployas inte.
+
+Allt arbete sker normalt via `webbrapport_publicera()` — man behöver alltså inte göra något manuellt i *samhallsanalys-rapporter*-repot. Vid behov dokumenteras det manuella publiceringsflödet i repots egen `README.md`.
+
+# Installation och konfigurering av Shiny-server{#installation-konfigurering-shinyserver}
+
+:::{.callout-important}
+## Detta avsnitt är bara för dem som hanterar själva Shiny-servern
+
+Om du *skapar eller reviderar* Shinyappar eller webbrapporter behöver du **inte** läsa det här avsnittet. Gå istället till [Shinyappar](#shinyappar) eller [Webbrapporter](#webbrapporter).
+
+Resten av detta kapitel är teknisk dokumentation för dig som ska:
+
+* installera en ny Shiny-server från grunden,
+* ändra serverkonfiguration (nginx, portar, rättigheter),
+* lägga upp infrastruktur för statiska webbrapporter, eller
+* felsöka problem på servernivå (åtkomst, deploy som inte går igenom, etc.).
+
+Servern sköter sig själv vid normalt arbete tack vare GitHub Actions och deploy-skripten — du som användare märker den knappt.
+:::
+
+I denna del finns dokumentation för att installera och konfigurera en Shiny-server.
+
+## Portöppningar till en ny Shiny-server
+För att en Shiny-server ska fungera krävs följande portöppningar i brandväggen som beställs av IT via Självbetjäningsportalen eller ett vanligt ärende.
+
+:::{.callout-important}
+## Brandväggsregler för HTTPS måste vara hostname-baserade (SNI), inte path-baserade
+
+Eftersom trafiken är krypterad redan när TLS-handshaken sker kan brandväggen inte läsa path:en (t.ex. `/Region-Dalarna`) i URL:en — den läser bara *hostname* i TLS-paketets SNI-fält. Beställningar formulerade som "endast `https://github.com/Region-Dalarna`" går därför inte att tillämpa i praktiken: antingen släpps hela hostnamnet igenom eller inget alls. Specificera *hostnamn* i beställningen till IT, inte URL-paths. Vi har sett konkret på interna servern att en path-baserad beställning gav `HTTP: 000` (TLS dödad av brandväggen) på allt mot `github.com`, trots att TCP-anslutningen på port 443 gick igenom.
+:::
+
+:::{.table tbl-colwidths="[30,15,15,40]" style="word-break: break-word;"}
+
+| Till hostname | Portar | Protokoll | Kommentar |
+|---------------|--------|-----------|-----------|
+| `*.r-project.org` | 443 | TCP | Utgående trafik för att hämta r-paket från CRAN m.m. |
+| ADM-nätet | 22 | TCP | För att kunna överföra filer från regiondatorer till servern |
+| `github.com` | 443 | TCP | git push/pull, runner-registrering, browsing av repon |
+| `api.github.com` | 443 | TCP | GitHub Actions self-hosted runner — registrering och job-polling |
+| `*.actions.githubusercontent.com` | 443 | TCP | GitHub Actions runner — hämtar job-payloads och artefakter (varierande subdomäner) |
+| `objects.githubusercontent.com` | 443 | TCP | Nedladdning av releaser från GitHub (t.ex. runner-uppdateringar) |
+| `codeload.github.com` | 443 | TCP | Klonar repon (används av `actions/checkout` i workflowen) |
+| `raw.githubusercontent.com` | 443 | TCP | Läser råa filer från GitHub (t.ex. `func_shinyappar.R`) |
+| `WFALMITVS526` | 5432 | TCP | PostGIS-databasen på port 5432/TCP |
+
+: Portöppningar och nätverksregler
+:::
+
+De fem GitHub-hostnamnen (`github.com`, `api.github.com`, `*.actions.githubusercontent.com`, `objects.githubusercontent.com`, `codeload.github.com`) är samtliga obligatoriska för att en self-hosted GitHub Actions-runner ska kunna registrera sig, hämta jobb och klona repon. Saknas något av dem fungerar inte deployen — runnern fastnar typiskt i registreringsfasen med `The SSL connection could not be established` (utan TLS-tillgång mot rätt hostname dör handshaken).
+
+### Diagnostisera SNI-blockering mot GitHub
+
+Om en runner inte kan registreras, eller om `curl` mot GitHub misslyckas trots att port 443 ska vara öppen, är det nästan alltid SNI-baserad filtrering: brandväggen släpper igenom själva TCP-handshaken men dödar anslutningen så fort den ser hostnamnet i TLS ClientHello-paketet. Kör följande tester från den nya servern (ingen sudo behövs) för att skilja en SNI-blockering från andra problem:
+
+```bash
+# 1. Ren TCP-anslutning (ingen TLS)
+nc -zv github.com 443
+
+# 2. SSL-handshake mot github.com root
+curl -sI --max-time 10 https://github.com -o /dev/null -w "HTTP: %{http_code}\n"
+
+# 3. api.github.com (används av runnern)
+curl -sI --max-time 10 https://api.github.com -o /dev/null -w "HTTP: %{http_code}\n"
+
+# 4. codeload.github.com (actions/checkout)
+curl -sI --max-time 10 https://codeload.github.com -o /dev/null -w "HTTP: %{http_code}\n"
+
+# 5. Job-payload endpoint
+curl -sI --max-time 10 https://pipelines.actions.githubusercontent.com -o /dev/null -w "HTTP: %{http_code}\n"
+
+# 6. Kontroll mot icke-github (ska alltid funka om HTTPS överhuvudtaget släpps ut)
+curl -sI --max-time 10 https://www.microsoft.com -o /dev/null -w "HTTP: %{http_code}\n"
+```
+
+Tolkning av utfallet:
+
+| Resultat | Vad det betyder |
+|----------|-----------------|
+| `nc` lyckas men alla `curl` returnerar `HTTP: 000` | Klassisk SNI-blockering — TCP släpps men TLS dödas på hostnamnet |
+| Alla `curl` returnerar `200`, `301`, `404` etc. | Brandväggen är inte problemet (även `HTTP: 404` är OK — det betyder att TLS gick igenom och webbservern svarade) |
+| Bara test #6 lyckas, övriga ger `HTTP: 000` | Generell HTTPS funkar men github-hostnamn är blockade |
+| Inget lyckas (inte ens #6) | Generell 443-blockering — bredare brandväggsproblem |
+
+Klistra in utfallet i beställningen till IT — det är konkret bevis på vad som behöver släppas igenom och hjälper IT att hitta rätt regel snabbt.
+
+## Skapa SSH-anslutning till Shinyservern
+För att kunna ansluta till Shiny-servern från din lokala dator (för att exempelvis kunna felsöka eller testa appar direkt på servern) behöver du först och främst behörighet till servern. Den styrs med AD-gruppen *LTShinyAdmin* där användare måste läggas till för att överhuvudtaget kunna ansluta till servern. Servern står i DMZ och kan nås via *vcenter.ltdalarna.se* där man loggar in med sin vanliga RD-inloggning. Det är dock smidigare att sätta upp en SSH-anslutning till servern genom att använda SSH-nycklar för autentisering. Följ dessa steg för att skapa en SSH-anslutning:
+
+1. Skapa ett SSH-nyckelpar på din Region Dalarna-dator. Detta görs genom att öppna Powershell och skriva
+```bash
+ssh-keygen.
+```
+2. Tryck *Enter* för att acceptera standardplatsen för nycklarna. Om det redan finns nycklar kan det vara en god idé att välja ett att namn så att befintliga nycklar inte skrivs över. Kom ihåg att lägga dem i mappen *C:\Users\<användarnamn>\.ssh\*. Du får en privat nyckel (*id_rsa*) och en publik nyckel (*id_rsa.pub*). De sparas i *C:\Users\<användarnamn>\.ssh\*. Du behöver vanligtvis inte ange något lösenord.
+3. Kopiera innehållet i den publika nyckeln (*id_rsa.pub*). Detta kan du göra genom att öppna filen i en textredigerare och kopiera all text i filen.
+4. Logga in på *vcenter.ltdalarna.se* med din vanliga RD-inloggning, alternativt be en kollega lägga in nyckeln i authorized_keys på Shiny-servern. Om det inte lagts in några nycklar behöver .ssh-mappen skapas. om du kör nano-kommandot nedan och det är tomt behöver du sannolikt skapa en ny mapp, det görs på följande vis:
+```bash
+mkdir ~/.ssh
+chmod 700 ~/.ssh
+```
+Därefter läggs nyckeln in, om mappen finns så går man direkt till detta steg, nyckeln läggs in med följande kommando:
+```bash
+nano ~/.ssh/authorized_keys
+```
+Filen öppnas i en textredigerare, klistra in den publika nyckeln på en ny rad i filen (om det finns nycklar sedan tidigare). Om det går, annars måste nyckeln skrivas in manuellt (lite drygt). Spara filen genom att trycka på *ctrl + o* och därefter trycker du på *Enter* följt av *ctrl + x* för att lämna textredigeraren.
+
+5. Skapa filen config (utan filändelse) i mappen *.ssh* på din lokala dator `(C:\Users\<användarnamn>\.ssh\config)` med följande innehåll:
+```bash
+Host shinyserver
+    HostName 194.71.51.21
+    User operationsadmin
+    IdentityFile C:\Users\moepet\.ssh\<din privata nyckel>
+```
+Den privata nyckeln är filen som ligger i .ssh-mappen och börjar på *id_*. Det kan se ut så här: *IdentityFile ~/.ssh/id_ed99999*.IP-numret ska vara till servern (kolla vad servern du kopplar upp mot har för IP) och användarnamnet är oftast *operationsadmin*. Så här skriver du på servern för att få ip-numret:
+```bash
+hostname -I
+```
+Det som står efter Host + mellanslag är vad du vill döpa anslutningen till. Kort och begripligt utan svenska bokstäver och utan mellanslag är att rekommendera.
+
+6. Nu är allt klart för att ansluta till Shiny-servern via SSH. Öppna en Powershell och skriv:
+```bash
+ssh shinyserver
+```
+Ersätt *shinyserver* med vad du döpt servern till ovan. Första gången man ansluter till servern via SSH kommer den att ställa följande fråga:
+
+> The authenticity of host 'shiny.regiondalarna.se (194.71.51.21)' can't be established.
+> ED25519 key fingerprint is SHA256:lzVFUEhBzQdf+XQdOL/R1y+8HYqA+eavtQGQ3J1vwpA.
+> This key is not known by any other names.
+> Are you sure you want to continue connecting (yes/no/[fingerprint])?
+> Host key verification failed.
+
+Skriv **yes** och tryck på *Enter* för att fortsätta anslutningen. Därefter kommer du att vara inloggad på Shiny-servern via SSH. För att ytterliagre underlätta uppkopplingen kan du skapa en genväg på skrivbordet där du skriver
+```bash
+C:\Users\moepet\AppData\Local\Microsoft\WindowsApps\wt.exe ssh shinyserver
+```
+Ersätt *shinyserver* med det namn du gav anslutningen i config-filen. Då öppnas en terminal där du direkt är uppkopplad mot Shiny-servern via SSH när du klickar på genvägen.
+
+## Installera Shiny server, R och nödvändiga beroenden
+När vi har konfigurerat en SSH-anslutning kan vi enkelt ansluta till servern vilket underlättar installation av R, nödvändiga paket i R såsom Shiny, Shiny server samt nödvändiga beroenden som behövs för att få igång servern. I korthet behöver vi göra följande:
+* Installera R
+* Installera nödvändiga R-paket
+* Ladda ner och installera Shiny server
+* Installera nödvändiga beroenden
+
+### Installera R
+Vi börjar med att installera r.
+```bash
+sudo apt update
+sudo apt install r-base -y
+```
+Vi installerar också några utvecklingsverktyg.
+```bash
+sudo apt install -y gdebi-core libssl-dev libcurl4-openssl-dev libxml2-dev
+```
+
+Följande systempaket används för att stödja R och Shiny på servern:
+
+| Paket | Beskrivning |
+|------|-------------|
+| `r-base` | Själva R‑miljön som Shiny‑apparna körs i |
+| `gdebi-core` | Används för att installera `.deb`‑paket med beroenden (t.ex. shiny‑server) |
+| `libssl-dev` | Krävs för kryptering, HTTPS och flera R‑paket |
+| `libcurl4-openssl-dev` | Används för API‑anrop och nedladdning av data (t.ex. via `curl` och `httr`) |
+| `libxml2-dev` | Krävs för XML/HTML‑hantering i R (t.ex. `xml2`, `rvest`) |
+
+Dessa paket är standardberoenden för de flesta Shiny‑servermiljöer. Vi installerar också paketet Shiny, och gör det med root-användaren så paketet är tillgängligt för alla och för servern:
+```bash
+sudo R
+```
+och sedan i R-prompten:
+```R
+install.packages("shiny")
+q()
+```
+:::callout-warning
+## Viktigt: välj inte personligt bibliotek på Shiny‑servern
+
+När R frågar om ett personligt bibliotek ska användas måste svaret vara **No**.
+R‑paket på Shiny‑servern ska installeras globalt som `root`, annars kommer
+Shiny‑apparna inte att hitta paketen i produktion.
+:::
+
+### Installera Shiny server
+För att installera Shiny server behöver vi först ladda ner det senaste `.deb`‑paketet från Posits webbplats. Oftast har vi ingen öppen port för att kunna ladda ner Shiny server direkt till Shiny-servern. Då får vi ladda ner filen på annan dator. Kolla vad den senaste filen heter. Det vi använder nu är Ubuntu-versionen som man hittar här hos posit: <https://posit.co/download/shiny-server> och direktlänken är (i skrivande stund 28 april 2026): <https://download3.rstudio.org/ubuntu-20.04/x86_64/shiny-server-1.5.23.1030-amd64.deb>. Ladda ner filen till `C:\Users\<användare>\`
+
+Använd scp från Windows (tack vare att du redan har SSH-nyckel!):
+
+```Powershell
+scp C:\Users\moepet\Downloads\shiny-server-1.5.23.1030-amd64.deb shinyserver_intern:/home/operationsadmin/
+```
+Om du har en nyare version, se till att få versionnumret rätt ovan och att mål-servern är korrekt (`shinyserver_intern` ovan). Därefter ligger .deb-filen i din hemkatalog på Shiny-servern.
+
+På Shiny-servern, kör:
+```bash
+sudo apt update
+```
+
+Om det efter att `sudo apt update` körts finns paket som kan uppdateras kan du se vilka genom att köra
+```bash
+sudo apt list --upgradable
+```
+Om det finns uppdateringar så är det oftast en bra idé att installera dem, särskilt för en ny server. Man kan vara mer försiktig på en server som är i produktion, särskilt vid uppdateringar där det är ett större versionshopp. Man kan vara lite försiktig och börja med att köra:
+```bash
+sudo apt upgrade --dry-run
+```
+Om det ser bra ut kan man därefter köra:
+```bash
+sudo apt upgrade
+```
+
+Ibland kan det vara en god idé att reboota servern efter uppdateringar, det beror lite på vilka uppdateringar som gjorts. Det görs enkelt med:
+```bash
+sudo reboot
+```
+
+SSH-anslutningen bryts under en reboot vilket är helt normalt. Vänta någon minut och anslut sedan till servern igen. Kör sedan:
+```bash
+uname -r
+```
+för att se vilken kärnversion som körs. Om det är en nyare version än innan uppdateringen så är det ett tecken på att uppdateringen har genomförts. Om du inte ser en nyare version kan det vara ett tecken på att uppdateringen inte har genomförts korrekt, eller att servern inte startats om efter uppdateringen. I så fall kan du behöva felsöka varför uppdateringen inte genomfördes eller starta om servern manuellt. Du kan också köra:
+```bash
+uptime
+```
+för att se hur länge servern har varit igång. Om den startades om nyligen så bör uptime visa en kort tid, vilket är ett tecken på att servern startats om efter uppdateringen. Om du har en ny kernel och allt fungerar ovan kan du också köra:
+```bash
+sudo apt autoremove
+```
+för att ta bort den gamla kerneln, nu när vi sett att den nya fungerar. Nu fortsätter vi med
+```bash
+sudo apt install -y gdebi-core
+cd /home/operationsadmin
+sudo gdebi shiny-server-1.5.23.1030-amd64.deb
+```
+Nu är Shiny server installerat och sannolikt aktivt. Du kan testa statusen på Shiny server med:
+```bash
+sudo systemctl status shiny-server
+```
+Vi installerar ytterligare några Debian-paket för att säkerställa att vi har allt vi behöver (det kan komma att behövas fler framöver, men dessa täcker de flesta behov):
+```bash
+sudo apt install -y \
+  gdebi-core build-essential \
+  libssl-dev libcurl4-openssl-dev libxml2-dev \
+  libfontconfig1-dev libfreetype6-dev \
+  libpng-dev libjpeg-dev libtiff5-dev \
+  libcairo2-dev libharfbuzz-dev libfribidi-dev \
+  libsqlite3-dev libpq-dev \
+  pandoc
+```
+Vi testar också att porten svara lokalt:
+```bash
+curl -I http://localhost:3838/
+```
+Om allt är korrekt installerat och Shiny server körs så bör du få ett svar som innehåller `HTTP/1.1 200 OK` vilket indikerar att Shiny server är igång och svarar på förfrågningar.
+
+## Konfigurera nginx som reverse proxy framför Shiny-servern{#nginx-reverse-proxy}
+
+Shiny-servern lyssnar själv på port 3838 och pratar bara HTTP. För att tjänsten ska vara nåbar på en snygg URL utan portnummer (`https://shiny.ltdalarna.se` i stället för `http://10.22.132.83:3838`) — och för att kunna erbjuda HTTPS med ett riktigt certifikat — sätter vi **nginx** framför som *reverse proxy*. nginx tar emot trafik på port 80/443 och skickar vidare den till Shiny-servern på port 3838 internt på servern.
+
+På den publika Shiny-servern är detta redan på plats sedan tidigare. Avsnittet nedan beskriver hur man sätter upp det på en ny server. Det är typiskt bara *en gång per server* som detta behöver göras.
+
+### Installera nginx och öppna brandväggen
+
+```bash
+sudo apt update
+sudo apt install -y nginx
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw status
+```
+
+Verifiera att nginx svarar lokalt: `curl -I http://localhost` ska ge `HTTP/1.1 200 OK` med default-sidan.
+
+### Skapa site-konfigurationen
+
+Skapa och öppna site-filen:
+
+```bash
+sudo nano /etc/nginx/sites-available/shiny
+```
+
+Klistra in följande (justera `server_name` för aktuell server):
+
+```nginx
+server {
+    listen 80;
+    server_name shiny.ltdalarna.se;
+
+    location / {
+        proxy_pass http://127.0.0.1:3838;
+        proxy_redirect http://127.0.0.1:3838/ $scheme://$host/;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 20d;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+:::{.callout-important}
+## WebSocket-upgrade är inte valfri
+
+Raderna `proxy_set_header Upgrade $http_upgrade;` och `proxy_set_header Connection "upgrade";` tillsammans med `proxy_http_version 1.1;` är avgörande — Shiny använder WebSockets för all interaktivitet. Utan dem laddar sidan men appen blir grå och slutar svara efter någon sekund.
+:::
+
+### Aktivera siten och ladda om nginx
+
+```bash
+sudo ln -s /etc/nginx/sites-available/shiny /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+`sudo nginx -t` ska säga `syntax is ok` och `test is successful`. Därefter ska `http://shiny.ltdalarna.se` (utan portnummer) ge "Welcome to Shiny Server!"-sidan i webbläsaren.
+
+### Lägga till HTTPS
+
+När TLS-certifikatet kommit från IT (se [Beställning av TLS-certifikat](#bestallning-tls-cert) nedan) levereras det typiskt i `.pfx`-format (eller mer sällan `.cer`/`.pem`). Vi behöver det som `.pem` för nginx — om du redan har färdiga `.pem`-filer kan du hoppa till placeringen längre ned.
+
+#### Konvertera `.pfx` till `.pem`
+
+`.pfx`-filen innehåller både certifikat, mellanliggande certifikat och privat nyckel i en enda fil, skyddade av ett lösenord (be IT om lösenordet när du får filen). Plocka isär den med `openssl`:
+
+```bash
+openssl pkcs12 -in certifikat.pfx -nocerts -nodes -out privatekey.pem
+openssl pkcs12 -in certifikat.pfx -clcerts -nokeys -out cert.pem
+openssl pkcs12 -in certifikat.pfx -cacerts -nokeys -out chain.pem
+cat cert.pem chain.pem > fullchain.pem
+```
+
+Resultatet är fyra `.pem`-filer: `privatekey.pem`, `cert.pem`, `chain.pem` och `fullchain.pem` — det är `fullchain.pem` och `privatekey.pem` som nginx kommer att läsa.
+
+#### Placera certifikatfilerna på servern
+
+Kopiera över filerna till servern (t.ex. med `scp` från din regiondator till `/tmp/` på Shiny-servern) och flytta dem på plats med rätt ägarskap och rättigheter:
+
+```bash
+sudo mkdir -p /etc/shiny-server/certs
+sudo mv /tmp/*.pem /etc/shiny-server/certs/
+sudo chown root:root /etc/shiny-server/certs/*
+sudo chmod 644 /etc/shiny-server/certs/*.pem
+sudo chmod 600 /etc/shiny-server/certs/privatekey.pem
+```
+
+Slutresultatet ska vara följande filer under `/etc/shiny-server/certs/`, med samma namnstandard som på den publika servern:
+
+- `cert.pem` — själva server-certifikatet
+- `fullchain.pem` — server-certifikat + mellancert-kedja (det är denna som nginx pekar mot)
+- `privatekey.pem` — privata nyckeln (ägs av `root:root`, `chmod 600`)
+- `chain.pem` — endast kedjan (utan server-certet)
+
+Uppdatera sedan `/etc/nginx/sites-available/shiny` så att HTTP redirectar till HTTPS och själva proxyn flyttas till port 443:
+
+```nginx
+server {
+    listen 80;
+    server_name shiny.ltdalarna.se;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name shiny.ltdalarna.se;
+
+    ssl_certificate     /etc/shiny-server/certs/fullchain.pem;
+    ssl_certificate_key /etc/shiny-server/certs/privatekey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3838;
+        proxy_redirect http://127.0.0.1:3838/ $scheme://$host/;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 20d;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Testa och ladda om:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+#### Verifiera HTTPS-uppsättningen
+
+Direkt på servern:
+
+```bash
+curl -k https://localhost
+curl -vk https://shiny.ltdalarna.se
+```
+
+`-k` betyder att curl inte bryr sig om certifikatets giltighet — det är användbart vid första testet, då du först vill veta att TLS-handshaken alls fungerar och att Shiny svarar. När det funkar lokalt kan du också testa utifrån (t.ex. från din regiondator) genom att gå in på `https://shiny.ltdalarna.se` i en webbläsare och kontrollera att hänglåset i adressfältet ser ok ut.
+
+:::{.callout-tip}
+## Snabb felsökning vid HTTPS-problem
+
+| Symptom | Trolig orsak |
+|---------|--------------|
+| `curl` hänger eller timeout:ar | Port 443 är inte öppen i brandväggen (`sudo ufw allow 443/tcp`) |
+| `nginx: [emerg] conflicting server name` vid `nginx -t` | Dubbletter i `/etc/nginx/sites-enabled/` — `default`-siten ligger kvar, eller två siter pekar på samma `server_name` |
+| `nginx -t` ger annat syntaxfel | Saknad semikolon, fel sökväg till certifikatfil, eller felstavad direktiv — felmeddelandet anger radnumret |
+| Webbläsaren varnar för "ej betrott certifikat" | `server_name` i nginx matchar inte certifikatets CN/SAN, eller `fullchain.pem` saknar mellancert-kedjan (öppna den med `openssl x509 -in fullchain.pem -noout -subject` och kontrollera) |
+| Sidan laddar men appen blir grå efter någon sekund | WebSocket-upgrade saknas i nginx-konfigurationen — se callout-rutan ovan om `Upgrade` och `Connection "upgrade"` |
+:::
+
+### Beställning av TLS-certifikat{#bestallning-tls-cert}
+
+Det generella flödet för att beställa, lägga in och byta TLS-certifikat — inklusive inspektion, ansvar och stegvis byte — finns i avsnittet [Certifikathantering (TLS/SSL)](#certifikathantering) nedan. För den **interna** Shiny-servern (`shiny.ltdalarna.se`) gäller samma princip som för den publika (`shiny.regiondalarna.se`), men med två viktiga skillnader att tänka på vid beställningen:
+
+* **Domänen är en annan** — `ltdalarna.se` är vår interna domän, så certifikatet behöver utfärdas av en CA som är giltig för den (vilket typiskt blir vårt interna CA, inte det publika CA som används för `*.regiondalarna.se`).
+* **Servern är intern** — Let's Encrypt och liknande publika ACME-tjänster fungerar därför inte (de kräver att domänen kan valideras externt).
+
+I beställningen till IT specificera:
+
+- **CN/SAN**: `shiny.ltdalarna.se` (eller wildcard `*.ltdalarna.se` om sådan rutin finns internt).
+- **Format**: PEM (cert + privat nyckel + ev. kedje-cert). Om IT levererar `.pfx` eller `.cer` konverteras de enligt instruktionerna i [Certifikathantering (TLS/SSL)](#certifikathantering).
+- **Användning**: nginx framför Shiny Server, intern användning på regionnätet.
+
+### Om du senare vill köra statiska webbrapporter på samma server
+
+Då kompletteras `location /`-blocket med en `try_files`-fallback enligt avsnittet [Statisk webbrapport-hosting](#statisk-hosting), och en andra `server_name` (t.ex. `samhallsanalys-intern.ltdalarna.se`) läggs till. Den uppdelningen är dock inte aktuell på den interna servern i nuläget.
+
+## Lägga in lösenord för att ansluta till våra Postgres/postgis-databaser från Shinyservern
+För att Shinyapparna ska kunna kommunicera med våra databaser behöver lösenord läggas in på Shinyservern, liksom det behöver läggas in på de lokala datorer som vill kunna skapa och revidera Shinysappar. Det här behöver bara göras en enda gång och sedan fungerar det. Shiny-servrar körs på Linux och där fungerar inte Keyring-paketet vilket är anledningen till att vi behöver en annan lösenordshantering. Det handlar dock bara om ett lösenord som används för att läsa från databaserna, men det finns också ett lösenord i de fall vi önskar kunna skriva till databaserna också. För att konfigurera en Shiny-server så att dessa lösenord fungerar, gör enligt följande:
+
+1. Byt användare till `shiny` på Shiny-servern. Om det inte finns en användare som heter `shiny` behöver denna skapas först.
+
+```bash
+sudo su - shiny
+```
+Du kommer att behöva skriva in lösenordet för din vanliga användare på Shiny-servern för att kunna byta användare till `shiny`.
+
+2. Kontrollera att du är i rätt hemkatalog, dvs. `/home/shiny`:
+```bash
+echo $HOME
+```
+
+2. Starta R:
+```bash
+R
+```
+3. Kör följande R-kod för att lägga in lösenordet för tjänsten `shiny_las` (läs från databasen), ladda först in funktionerna från github:
+```r
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_shinyappar.R")
+```
+och sedan
+```r
+shiny_set_password("shiny_las")
+```
+Du kommer att bli uppmanad att skriva in lösenordet för tjänsten `shiny_las`. Skriv in det och tryck Enter. Observera att lösenordet skrivs i klartext så säkerställ att ingen kikar över axeln eller att hemliga spionkameror är riktade mot skärmen när du skriver lösenordet.
+
+4. (Valfritt) Upprepa steg 3 för tjänsten `shiny_skriv` om appen behöver skriva till databasen:
+```r
+shiny_set_password("shiny_skriv")
+```
+5. Om du vill se vilka lösenord som finns inlagda på den dator du jobbar på så kan du köra:
+```r
+shiny_list_passwords()
+```
+6. Avsluta R:
+```r
+q()
+```
+7. Byt tillbaka till din vanliga användare:
+```bash
+exit
+```
+8. Nu är allt klart för att Shinyapparna ska kunna läsa från (och skriva till) databasen på Shiny-servern.
+
+## Rättigheter på app-katalogerna i `/srv/shiny-server/`{#rattigheter-app-kataloger}
+
+Det här avsnittet beskriver hur vi sätter upp ägarskap, grupp och filrättigheter
+på app-katalogerna under `/srv/shiny-server/` så att både deploy-flödet och
+Shiny-servern fungerar samtidigt. Det här är något du normalt **bara behöver
+sätta upp en gång per server och app** — när det är på plats sköter
+deploy-skriptet `/usr/local/bin/shiny_deploy.sh` om att hålla rättigheterna
+konsistenta vid varje deploy. Men om något krånglar vid deploy (typiskt felet är
+`rm: kan inte ta bort '...': Åtkomst nekas` i GitHub Actions-loggen, eller
+`Operation not permitted` när skriptet försöker köra `chgrp`) så är det nästan
+alltid en rättighetsfråga, och då är det här avsnittet startpunkten.
+
+### Princip: en användare skriver, en grupp läser
+
+Två separata Linux-användare/grupper är inblandade i en deploy:
+
+- **`shiny-deploy`** — användaren som GitHub Actions-runnern kör som. Det är
+  alltså den användaren som rensar bort gamla filer och kopierar in nya vid
+  varje deploy. Den **måste vara ägare** till app-katalogen för att kunna ta
+  bort filer i den.
+- **`shiny`** — gruppen som `shiny-server`-tjänsten kör som. Den **måste kunna
+  läsa** alla filer i app-katalogen för att kunna servera appen.
+
+Principen blir alltså: **en användare skriver, en grupp läser.**
+
+För att deployen ska kunna sätta gruppen `shiny` på de nya filerna utan att
+behöva eskalera till `sudo` **måste `shiny-deploy` vara medlem i gruppen
+`shiny`**. Det här är inte längre ett "belt-and-suspenders"-tillägg utan ett
+hårt krav — `chgrp -R shiny` i deploy-skriptet kräver det:
+
+```bash
+sudo usermod -aG shiny shiny-deploy
+```
+
+Efter det här kommandot måste runnern startas om för att den nya
+gruppmedlemmen ska slå igenom (en utloggning räcker inte för en
+bakgrundsprocess som redan körs).
+
+### Önskat sluttillstånd
+
+För varje app-katalog under `/srv/shiny-server/` (t.ex.
+`/srv/shiny-server/brott`):
+
+- **Ägare**: `shiny-deploy`
+- **Grupp**: `shiny`
+- **Läge på katalogen**: `2775` (`drwxrwsr-x`). Setgid-biten (`s` på gruppen)
+  gör att nya filer som skapas i katalogen automatiskt ärver gruppen `shiny` —
+  vilket är poängen, för det är så vi slipper hamna i ett läge där en ny fil
+  inte kan läsas av Shiny-servern.
+- **Läge på filer**: `664` (`-rw-rw-r--`).
+
+### Sätta upp rättigheterna första gången
+
+När appen är skapad och första deployen har körts (eller om du sätter upp den
+manuellt), kör som `operationsadmin` (eller annan sudo-användare):
+
+```bash
+# 1. Lägg shiny-deploy i gruppen shiny (om det inte redan är gjort)
+sudo usermod -aG shiny shiny-deploy
+
+# 2. Sätt ägarskap, grupp och rättigheter på app-katalogen
+sudo chown -R shiny-deploy:shiny /srv/shiny-server/<appnamn>
+sudo find /srv/shiny-server/<appnamn> -type d -exec chmod 2775 {} \;
+sudo find /srv/shiny-server/<appnamn> -type f -exec chmod 664 {} \;
+```
+
+`find` används istället för `chmod -R` för att vi vill ha olika lägen på
+kataloger respektive filer (`2775` på kataloger för setgid, `664` på filer).
+
+Om du precis lagt till `shiny-deploy` i gruppen `shiny` — glöm inte att starta
+om GitHub Actions-runnern så att den läser om sin gruppmedlemskap.
+
+### Konsistens vid deploy
+
+Rättigheterna hålls konsistenta av deploy-skriptet `/usr/local/bin/shiny_deploy.sh`
+som körs vid varje deploy. Det avslutas med tre kommandon som garanterar att
+nyligen kopierade filer alltid hamnar i rätt grupp och med rätt läge:
+
+```bash
+# Sätt grupp 'shiny' (som shiny-server kör som) på allt.
+# chgrp kräver inte root när vi själva äger filerna OCH är medlem i målgruppen.
+chgrp -R shiny "$TARGET_DIR"
+
+# Kataloger: rwxrwsr-x  (setgid så nya filer ärver gruppen 'shiny')
+find "$TARGET_DIR" -type d -exec chmod 2775 {} \;
+
+# Filer: rw-rw-r--    (gruppen 'shiny' kan läsa, shiny-deploy kan skriva)
+find "$TARGET_DIR" -type f -exec chmod 664 {} \;
+```
+
+Inget av kommandona kräver `sudo` eftersom `shiny-deploy` äger katalogen och
+är medlem i gruppen `shiny`. Eftersom logiken sitter i deploy-skriptet behövs
+inget extra steg i `.github/workflows/deploy.yml` — workflowen anropar bara
+`shiny_deploy.sh` och låter det sköta resten.
+
+### Vanliga fallgropar
+
+- **Redigera aldrig filer i `/srv/shiny-server/<appnamn>` som `root` eller
+  någon annan användare än `shiny-deploy`.** Då blir filen ägd av fel
+  användare och nästa deploy får `Åtkomst nekas` när den försöker ta bort
+  filen. Logga in som `shiny-deploy` (`sudo -u shiny-deploy ...`) om du måste
+  ändra något manuellt.
+- **`rm <fil>` kräver skrivrätt på *katalogen*, inte filen.** Det är därför
+  ett rättighetsfel vid borttagning nästan alltid handlar om katalogens
+  ägarskap eller läge — inte filens. När du felsöker: börja alltid med
+  `ls -ld` på katalogen (och dess föräldrar), inte på filen.
+- **Föräldrakatalogerna måste också vara åtkomliga.** `/srv/shiny-server` har
+  typiskt `drwxr-s---  shiny-deploy  shinyapps`, så bara ägaren och medlemmar
+  i gruppen `shinyapps` kommer åt underkatalogerna. Om en ny användare
+  behöver felsöka direkt på servern måste den läggas till i `shinyapps`.
+- **Om `shiny-deploy` inte är medlem i gruppen `shiny`** kommer
+  `chgrp -R shiny` i deploy-skriptet att failera med `Operation not permitted`.
+  Lös det med `sudo usermod -aG shiny shiny-deploy` följt av omstart av
+  runnern.
+
+### Diagnostik vid rättighetsfel
+
+Om en deploy fallerar med `Åtkomst nekas` eller `Operation not permitted`,
+börja här (kör som `operationsadmin` med `sudo` där det behövs):
+
+```bash
+# 1. Vem äger app-katalogen och vilken grupp har den?
+sudo ls -ld /srv/shiny-server/<appnamn>
+
+# 2. Hur ser filerna inuti ut? Kolla särskilt om någon fil ägs av fel
+#    användare eller har fel grupp.
+sudo ls -la /srv/shiny-server/<appnamn>
+
+# 3. Vilka grupper är shiny-deploy med i? (måste innehålla 'shiny')
+id shiny-deploy
+
+# 4. Är föräldrakatalogen åtkomlig?
+sudo ls -ld /srv/shiny-server
+```
+
+Hittar du en fil som ägs av fel användare (typiskt `root`) — kör
+chown/chmod-blocket från avsnittet *Sätta upp rättigheterna första gången*
+ovan för att återställa hela katalogen. Saknas `shiny` i `id shiny-deploy`,
+kör `sudo usermod -aG shiny shiny-deploy` och starta om runnern.
+
+## renv-miljö på Shiny-servern{#renv-shinyserver}
+
+Våra appar använder **renv** för reproducerbara paketversioner. Varje app bär med sig en `renv.lock` och en `.Rprofile` i repo-roten. Vid deploy återställer servern paketmiljön till appens egen `renv/library/`, som symlänkas mot en **delad cache** så att varje paketversion bara byggs en gång och delas mellan appar.
+
+Det här behöver göras **en gång per server** (både publik och intern). Kör som `operationsadmin`.
+
+### 1. renv i systembiblioteket
+
+Så att deployens renv-bootstrap inte behöver nätet:
+
+```bash
+sudo Rscript -e 'install.packages("renv", repos = "https://cloud.r-project.org")'
+sudo ls -d /usr/local/lib/R/site-library/renv && echo "renv: JA"
+```
+
+### 2. https-CRAN i Rprofile.site
+
+:::{.callout-warning}
+Utgående `http://cloud.r-project.org` är blockerat — bara https släpps ut. En lockfil eller bootstrap som pekar på http failar med `curl code 56`. All renv-trafik måste gå mot **https**.
+:::
+
+Verifiera att https-mirrorn är satt:
+
+```bash
+sudo grep -i "cloud.r-project" /usr/lib/R/etc/Rprofile.site
+# ska visa  ...<- "https://cloud.r-project.org"
+```
+
+### 3. Delad renv-cache
+
+```bash
+sudo mkdir -p /srv/shiny-server/.renv-cache
+sudo chgrp shiny /srv/shiny-server/.renv-cache      # gruppen som apparna kör som
+sudo chmod 2775 /srv/shiny-server/.renv-cache       # setgid: nya filer ärver gruppen
+```
+
+Cachen följer samma rättighetsprincip som app-katalogerna (se [Rättigheter på app-katalogerna](#rattigheter-app-kataloger)): en användare (`shiny-deploy`) skriver, gruppen (`shiny`) läser.
+
+### 4. Peka R mot cachen
+
+```bash
+echo 'RENV_PATHS_CACHE=/srv/shiny-server/.renv-cache' | sudo tee -a /usr/lib/R/etc/Renviron.site
+```
+
+### 5. Låt shiny-användaren nå cachen
+
+Appen körs som `shiny` (`run_as shiny`) och måste kunna **traversera** `/srv/shiny-server` och **läsa** cachen. Om `/srv/shiny-server` ägs av gruppen `shinyapps` utan åtkomst för "other", måste `shiny` vara medlem i `shinyapps` — annars startar appen inte (`there is no package called ...`):
+
+```bash
+sudo usermod -aG shinyapps shiny
+sudo systemctl restart shiny-server
+sudo -u shiny test -r /srv/shiny-server/.renv-cache && echo "shiny kan läsa cachen: JA"
+```
+
+:::{.callout-note}
+Detta var den exakta fällan på den interna servern: `shiny` låg bara i sin egen grupp och kunde inte ta sig in i `/srv/shiny-server`. Verifiera alltid med `test -r` ovan — anta inte att medlemskapet redan finns.
+:::
+
+### 6. Systembibliotek för källkodskompilering
+
+`cloud.r-project.org` levererar **källkod** — servern kompilerar paketen själv. Spatial- och typsnittspaket kräver då utvecklingsbibliotek på systemnivå. Installera dem (och `rsync`, som deploy-skriptet använder):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential cmake rsync \
+  libuv1-dev libudunits2-dev libabsl-dev \
+  gdal-bin libgdal-dev libgeos-dev libproj-dev \
+  libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev \
+  libpng-dev libtiff5-dev libjpeg-dev libcairo2-dev \
+  libxml2-dev libssl-dev libcurl4-openssl-dev
+```
+
+Failar en deploy under paketbygget pekar loggraden ut vad som saknas. renv listar dessutom ofta de saknade systempaketen självt i början av restore — men dubbelkolla mot det faktiska byggfelet, för renv kan missa något (t.ex. att `fs` kräver `libuv1-dev`, inte `cmake`). Mappning mellan paket och bibliotek vi sett:
+
+| R-paket | Saknat systembibliotek |
+|---------|------------------------|
+| `fs` | `libuv1-dev` |
+| `units` | `libudunits2-dev` |
+| `s2` | `libabsl-dev` (alt. `cmake` för att bygga medföljande abseil) |
+| `sf` | `libgdal-dev`, `gdal-bin`, `libgeos-dev`, `libproj-dev` |
+
+### 7. PPM går inte att använda för binärpaket
+
+:::{.callout-warning}
+Posit Package Manager (`packagemanager.posit.co`) skulle ge förkompilerade binärpaket (snabbare än källkod), men fungerar inte i vårt nät: en GET redirectas (307) till `rspm-sync.rstudio.com`, som är blockerat utgående (`curl code 35/56`). En HEAD-förfrågan ger vilseledande `200` och döljer redirecten. Därför pekar våra lockfiler på `cloud.r-project.org` (källkod).
+
+Vill man ha binärfart krävs att IT öppnar utgående mot `rspm-sync.rstudio.com`. Kartlägg då hela redirect-kedjan med en **GET** (inte HEAD) innan ärendet läggs, så att man vet om en enda host räcker eller om kedjan fortsätter vidare:
+
+```bash
+curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" \
+  "https://packagemanager.posit.co/cran/__linux__/bookworm/latest/src/contrib/withr_3.0.3.tar.gz"
+```
+:::
+
+### 8. Arbetsflöde: testa och implementera en ny paketversion
+
+renv låser paketversioner per app, så ett paket uppdateras inte av sig självt. När du vill prova en nyare version av ett paket — eller lägga till ett nytt — sker det **lokalt** i appens projekt, och först när du är nöjd skrivs det in i `renv.lock` och deployas. Hela cykeln:
+
+**1. Öppna appens projekt lokalt** (så att renv är aktivt för just den appen) och kontrollera utgångsläget:
+
+```r
+renv::status()   # visar om lockfil, bibliotek och kod är i synk
+```
+
+**2. Installera den nya versionen i projektets bibliotek.** Antingen senaste versionen, eller en exakt version:
+
+```r
+renv::install("withr")          # senaste från CRAN
+renv::install("withr@3.0.3")    # specifik version
+```
+
+Detta ändrar bara appens *lokala* bibliotek — `renv.lock` är ännu orörd, så inget är publicerat.
+
+**3. Testa appen lokalt med den nya versionen:**
+
+```r
+shiny::runApp()
+```
+
+Fungerar allt som det ska? Bra. Gör det inte det kan du backa utan spår genom att återställa till lockfilens versioner:
+
+```r
+renv::restore()   # ångrar installationen ovan, tillbaka till låst läge
+```
+
+**4. Skriv in den nya versionen i `renv.lock`** när du är nöjd:
+
+```r
+renv::snapshot()   # registrerar projektets nuvarande paketversioner i renv.lock
+```
+
+:::{.callout-warning}
+Säkerställ att https-CRAN är aktivt när du snapshot:ar, så att lockfilen föds med en URL servern når. Kontrollera vid behov:
+```r
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+jsonlite::fromJSON("renv.lock")$R$Repositories   # ska visa https
+```
+:::
+
+**5. Commit och publicera.** Nu följer den nya versionen med som vilken kodändring som helst:
+
+```r
+github_commit_push("appnamn", commit_txt = "Uppdatera withr till 3.0.3")
+shinyapp_publicera("appnamn")
+```
+
+Vid deploy ser servern att `renv.lock` ändrats, bygger den nya versionen från källkod (en gång), lägger den i den **delade cachen** och länkar in den i appens bibliotek. Nästa app som vill ha samma version får den direkt ur cachen utan ny kompilering.
+
+:::{.callout-note}
+Eftersom paket byggs från källkod tar *första* appen som inför en ny paketversion lite längre tid att deploya (kompileringen). Det är en engångskostnad per version — därefter ligger den i cachen. Tunga paket som `sf`/`s2` kan ta flera minuter; det är väntat.
+:::
+
+### 9. Lockfilen måste vara https
+
+Nya appar som skapas med `shinyapp_skapa_med_github_repo()` tvingar https-CRAN i renv-subprocessen, så deras `renv.lock` föds rätt. En **äldre** app vars lockfil pekar på http rättas en gång lokalt:
+
+```r
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+renv::snapshot(project = "C:/gh/<appnamn>", prompt = FALSE)
+jsonlite::fromJSON("C:/gh/<appnamn>/renv.lock")$R$Repositories   # ska visa https
+```
+
+Därefter commit + push + publicera.
+
+## Konfigurera GitHub Actions-runner för Shiny-app-deploy{#runner-shiny-deploy}
+
+GitHub Actions-deployen kör som användaren `shiny-deploy` på Shiny-servern via en self-hosted runner. Den kan leva sida vid sida med en eventuell rapport-runner (`rapport-deploy`) — de stör inte varandra eftersom de kör som olika användare och har olika labels.
+
+Etikett-konventionen för Shiny-app-runners är:
+
+- `shiny-deploy-publik` på den publika Shiny-servern (DMZ, `shiny.regiondalarna.se`)
+- `shiny-deploy-intern` på den interna Shiny-servern (`shiny.ltdalarna.se`)
+
+Workflowen i varje Shiny-app-repo har `runs-on: [ self-hosted, shiny-deploy-publik ]` eller motsvarande för intern server, och plockas alltså bara upp av rätt runner.
+
+### Skapa shiny-deploy-användaren och deploy-skriptet
+
+Som `operationsadmin` (med `sudo`):
+
+```bash
+# 1. Skapa användare och grupp
+sudo adduser --system --group --shell /bin/bash --home /home/shiny-deploy shiny-deploy
+
+# 2. Lägg shiny-deploy i gruppen shiny så att den kan sätta gruppen på filer
+#    utan sudo (se avsnittet "Rättigheter på app-katalogerna" ovan).
+sudo usermod -aG shiny shiny-deploy
+
+# 3. Sätt upp /srv/shiny-server/-rättigheterna enligt samma avsnitt.
+```
+
+Skapa sedan `/usr/local/bin/shiny_deploy.sh` — samma skript på publik och intern server:
+
+```bash
+sudo nano /usr/local/bin/shiny_deploy.sh
+sudo chmod 755 /usr/local/bin/shiny_deploy.sh
+sudo chown root:root /usr/local/bin/shiny_deploy.sh
+```
+
+Innehåll:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+APP_NAME="${1:-}"
+SOURCE_DIR="${2:-}"
+if [[ -z "$APP_NAME" || -z "$SOURCE_DIR" ]]; then
+  echo "Usage: $0 <app_name> <source_dir>" >&2
+  exit 1
+fi
+TARGET_DIR="/srv/shiny-server/$APP_NAME"
+mkdir -p "$TARGET_DIR"
+
+# Kopiera repo-roten till servern. Strukturen är utplattad: appfilerna ligger
+# i roten med renv bredvid (renv.lock, .Rprofile, renv/). Vi tar med renv men
+# INTE renv/library (den byggs på servern), och inte ren byggställning som bara
+# behövs lokalt/i CI.
+rsync -a --delete \
+  --exclude='app_cache/' \
+  --exclude='.git/' \
+  --exclude='.github/' \
+  --exclude='.Rproj.user/' \
+  --exclude='renv/library/' \
+  --exclude='*.Rproj' \
+  --exclude='.gitignore' \
+  --exclude='README.md' \
+  --exclude='_dependencies.R' \
+  --exclude='_publicering_till_server.yml' \
+  "$SOURCE_DIR"/ "$TARGET_DIR"/
+
+# Grundläggande grupp/rättigheter (app_cache undantas — ägs av shiny).
+find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -exec chgrp shiny {} +
+find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type d -exec chmod 2775 {} +
+find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type f -exec chmod 664 {} +
+
+# Om appen har renv: återställ paketmiljön från renv.lock.
+if [[ -f "$TARGET_DIR/renv.lock" && -f "$TARGET_DIR/renv/activate.R" ]]; then
+  echo "renv detected. Restoring project library from renv.lock..."
+  cd "$TARGET_DIR"
+  Rscript -e 'if (!requireNamespace("renv", quietly = TRUE)) install.packages("renv", repos = "https://cloud.r-project.org"); renv::restore(project = ".", prompt = FALSE)'
+
+  # renv::restore() kan skapa nya filer, så sätt rättigheter igen.
+  find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -exec chgrp shiny {} +
+  find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type d -exec chmod 2775 {} +
+  find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type f -exec chmod 664 {} +
+
+  # Härda den delade renv-cachen så att shiny-användaren kan läsa nybyggda paket.
+  # Feltolerant (|| true) eftersom toppmappen kan ägas av root.
+  RENV_CACHE="/srv/shiny-server/.renv-cache"
+  if [[ -d "$RENV_CACHE" ]]; then
+    chgrp -R shiny "$RENV_CACHE" 2>/dev/null || true
+    find "$RENV_CACHE" -type d -exec chmod 2775 {} + 2>/dev/null || true
+    find "$RENV_CACHE" -type f -exec chmod 664 {} + 2>/dev/null || true
+  fi
+else
+  echo "No renv.lock found. Skipping renv restore."
+fi
+echo "Deploy of '$APP_NAME' completed successfully."
+```
+
+Några saker värda att förstå i skriptet:
+
+* **Undantagen** håller serverns appkatalog ren: `renv/library/` exkluderas så att serverns byggda bibliotek överlever mellan deployer, och ren byggställning (`*.Rproj`, `README.md`, `_dependencies.R`, `_publicering_till_server.yml`) hålls borta eftersom den bara behövs lokalt. `app_cache/` undantas från sync, ägarbyte och chmod — den katalogen ägs av `shiny` (runtime-cache) och får inte röras.
+* **renv-restore** körs bara om appen har en `renv.lock`. Fallbacken för att installera renv pekar på `cloud.r-project.org` (inte PPM, som är blockerat).
+* **Cache-härdningen** efter restore sätter grupp `shiny` och setgid på den delade cachen, så att `shiny`-användaren (som kör appen) alltid kan läsa nybyggda paket. Utan den kan appens symlänkar peka in i en cache som `shiny` inte når, och appen startar inte.
+
+:::{.callout-note}
+`--exclude` hindrar *nya* filer från att kopieras, men `rsync --delete` städar inte bort filer som redan deployats innan undantaget lades till. Vid övergång från en äldre struktur kan en engångsstädning behövas: `sudo rm` på de kvarvarande byggställnings-filerna i `/srv/shiny-server/<appnamn>/`.
+:::
+
+### Sudoers för restart, loggläsning och avpublicering
+
+Runnern behöver kunna starta om `shiny-server`, läsa loggen och ta bort app-kataloger utan lösenord (den är icke-interaktiv). Skapa en drop-in via `visudo` så att syntaxen valideras:
+
+```bash
+sudo visudo -f /etc/sudoers.d/shinydeploy
+```
+
+Innehåll:
+
+```
+# Allow GitHub Actions runner (shiny-deploy) to restart shiny-server,
+# read its log for diagnostics, and remove app directories (avpublicera).
+# NOPASSWD required because the runner is non-interactive.
+shiny-deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart shiny-server
+shiny-deploy ALL=(ALL) NOPASSWD: /usr/bin/tail -n 50 /var/log/shiny-server.log
+shiny-deploy ALL=(ALL) NOPASSWD: /usr/bin/rm -rf /srv/shiny-server/*
+```
+
+`rm`-regeln behövs för `shinyapp_avpublicera()`, som kör `sudo rm -rf` på app-katalogen. Utan den failar avpubliceringen med *"sudo: ett lösenord krävs"*.
+
+:::{.callout-warning}
+**Sökvägen skiljer sig mellan servrar.** På en server kan `systemctl`/`rm` ligga i `/bin/`, på en annan i `/usr/bin/`. sudoers matchar *exakt* sökväg — verifiera med `command -v systemctl rm` och använd den sökväg servern faktiskt har, annars nekas regeln tyst. **Filnamnet får ingen ändelse**: `sudo` ignorerar filer med punkt i namnet i `/etc/sudoers.d/`. Använd `/etc/sudoers.d/shinydeploy` (samma namn på alla servrar för konsistens) och redigera alltid med `visudo -f`.
+:::
+
+Filens mode ska vara `440` (sätts automatiskt av `visudo`). Verifiera hela sudoers-konfigurationen:
+
+```bash
+sudo visudo -c
+```
+
+### Installera GitHub Actions-runnern
+
+Som `shiny-deploy`:
+
+```bash
+sudo su - shiny-deploy
+mkdir -p ~/actions-runner && cd ~/actions-runner
+
+# Hämta senaste runner-paketet. Aktuell version + engångstoken hittas via
+# GitHub: Organization settings → Actions → Runners → New self-hosted runner.
+curl -O -L https://github.com/actions/runner/releases/download/v<version>/actions-runner-linux-x64-<version>.tar.gz
+tar xzf actions-runner-linux-x64-<version>.tar.gz
+
+# Konfigurera mot organisationen — välj rätt label!
+./config.sh \
+  --url https://github.com/Region-Dalarna \
+  --token <engångstoken> \
+  --labels shiny-deploy-publik \
+  --unattended \
+  --replace
+```
+
+För intern server: ändra labeln till `shiny-deploy-intern`.
+
+:::{.callout-warning}
+## Om brandväggen blockerar nedladdning eller registrering
+
+På interna servern lyckas typiskt inte `curl` mot `github.com` förrän brandväggen är öppen — anslutningen avbryts med t.ex. `Recv failure: Connection reset by peer`. Två alternativ:
+
+1. **Få brandväggen öppnad först (rekommenderas).** Se *Diagnostisera SNI-blockering mot GitHub* ovan för hur du verifierar problemet och vad du beställer av IT. Utan att brandväggen är öppen kommer runnern ändå inte att kunna polla efter jobb i drift.
+
+2. **Tillfälligt: ladda ner via Windows och kopiera över med scp.** Från din regiondator:
+
+```powershell
+curl -o actions-runner-linux-x64-<version>.tar.gz -L `
+  https://github.com/actions/runner/releases/download/v<version>/actions-runner-linux-x64-<version>.tar.gz
+scp actions-runner-linux-x64-<version>.tar.gz shinyserver_intern:/home/operationsadmin/
+```
+
+På servern, flytta filen till `shiny-deploy`:s hemkatalog och fortsätt med `tar` + `config.sh` som vanligt:
+
+```bash
+sudo mv /home/operationsadmin/actions-runner-linux-x64-<version>.tar.gz \
+        /home/shiny-deploy/actions-runner/
+sudo chown shiny-deploy:shiny-deploy \
+        /home/shiny-deploy/actions-runner/actions-runner-linux-x64-<version>.tar.gz
+```
+
+Notera att även efter att tarballen är på plats kommer `./config.sh` att failera med `The SSL connection could not be established, see inner exception` om brandväggen inte är öppen — själva registreringen behöver kontakta `api.github.com` och `*.actions.githubusercontent.com`, och runtime-driften kräver konstant utgående 443 mot GitHub för att polla efter jobb. Brandväggsöppning är alltså en hård förutsättning, inte bara ett bekvämlighetstillägg.
+:::
+
+Tillbaka som `operationsadmin` — installera och starta som systemd-tjänst så att runnern startar automatiskt vid omstart:
+
+```bash
+cd /home/shiny-deploy/actions-runner
+sudo ./svc.sh install shiny-deploy
+sudo ./svc.sh start
+sudo ./svc.sh status
+```
+
+Bekräfta att runnern dyker upp som *Idle* (grön bock) under organisationens *Settings → Actions → Runners* på GitHub, med rätt label (`shiny-deploy-publik` eller `shiny-deploy-intern`).
+
+### Verifiera deploy end-to-end
+
+Trigga en deploy genom att köra `shinyapp_publicera("appnamn")` från en regiondator. I GitHub Actions-loggen för repot bör jobbet plockas upp av rätt runner inom någon sekund. Avsluta med att kolla på servern:
+
+```bash
+# Att appen finns på rätt plats med rätt ägare/läge
+sudo ls -la /srv/shiny-server/<appnamn>
+
+# Att shiny-server inte spottar ur sig fel i loggen
+sudo tail -n 50 /var/log/shiny-server.log
+```
+
+## Certifikathantering (TLS/SSL){#certifikathantering}
+
+Shiny-servern serverar HTTPS via nginx med ett TLS-certifikat som hanteras manuellt — det förnyas alltså inte automatiskt via Let's Encrypt eller liknande. Det är ett wildcard-certifikat (`*.regiondalarna.se` på den publika servern, motsvarande för den interna) som beställs centralt via IT och som **Samhällsanalys ansvarar för** att lägga in på Shiny-servern när det förnyas.
+
+### Var ligger certifikatet och hur ser det ut?
+
+Certifikatfilerna ligger i `/etc/shiny-server/certs/` på Shiny-servern. De viktigaste filerna är:
+
+| Fil | Innehåll |
+|-----|----------|
+| `cert.pem` | Själva serverns certifikat |
+| `fullchain.pem` | Server-certifikat + mellanliggande certifikat (den fil nginx pekar mot) |
+| `privatekey.pem` | Privat nyckel (`root:root`, `chmod 600`) |
+| `chain.pem` | Endast kedjan (utan server-certet) |
+
+Det är `fullchain.pem` som nginx läser — det är alltså den filen som måste uppdateras vid byte.
+
+### Kolla giltighetstid och innehåll
+
+För att se vilket certifikat som ligger på servern och hur länge det är giltigt, kör (kräver root eller `sudo`):
+
+```bash
+sudo openssl x509 -in /etc/shiny-server/certs/fullchain.pem -noout -dates -subject -issuer
+```
+
+Det visar:
+
+* `notBefore` — när certifikatet började gälla.
+* `notAfter` — när det går ut.
+* `subject` — vilken domän certet täcker (t.ex. `CN=*.regiondalarna.se`).
+* `issuer` — vem som utfärdat det.
+
+För att kolla giltigheten utifrån (utan att logga in på servern):
+
+```bash
+echo | openssl s_client -servername shiny.regiondalarna.se -connect shiny.regiondalarna.se:443 2>/dev/null | openssl x509 -noout -dates -subject
+```
+
+### Ansvar och bevakning
+
+**Samhällsanalys** ansvarar för att hålla Shiny-serverns certifikat ajour. IT förnyar det centrala wildcard-certifikatet för `*.regiondalarna.se` (respektive motsvarande interna cert), men det är vi som lägger in den nya filen på Shiny-servern när det är dags. Detta behöver vanligtvis göras **en gång om året** — sätt en kalenderpåminnelse minst 30 dagar innan `notAfter` så att vi har god marginal. Glömmer vi det blir Shinyappar och webbrapporter otillgängliga via HTTPS tills det är åtgärdat.
+
+### Byta certifikat
+
+När IT har förnyat wildcard-certifikatet får vi det i något av formaten `.pfx`, `.cer` eller `.pem`. Stegen nedan är vad vi gjort tidigare.
+
+1. **Om certet är i `.pfx`- eller `.cer`-format — konvertera till `.pem` först.** För `.cer`:
+
+```bash
+openssl x509 -in exempel.crt -out exempel.pem -outform PEM
+```
+
+För `.pfx` plockas certifikat, kedja och privat nyckel isär med `openssl pkcs12` — be IT om lösenordet som hör till filen innan du börjar:
+
+```bash
+openssl pkcs12 -in certifikat.pfx -nocerts -nodes -out privatekey.pem
+openssl pkcs12 -in certifikat.pfx -clcerts -nokeys -out cert.pem
+openssl pkcs12 -in certifikat.pfx -cacerts -nokeys -out chain.pem
+cat cert.pem chain.pem > fullchain.pem
+```
+
+Samma kommandon används vid första uppsättningen av servern — se [Konvertera `.pfx` till `.pem`](#lägga-till-https) under nginx-avsnittet.
+
+2. **Ladda upp `.pem`-filen till Shiny-servern.** Enklaste sättet är `scp` från din lokala dator om du har SSH-anslutning uppsatt (se [Skapa SSH-anslutning till Shinyservern](#skapa-ssh-anslutning-till-shinyservern)):
+
+```powershell
+scp cert.pem shinyserver:/home/operationsadmin/
+```
+
+3. **Ta en backup av nuvarande `fullchain.pem`** innan du ändrar något — då kan du enkelt rulla tillbaka om något går snett:
+
+```bash
+sudo cp /etc/shiny-server/certs/fullchain.pem \
+        /etc/shiny-server/certs/fullchain.pem.bak-$(date +%Y%m%d)
+```
+
+4. **Ersätt det gamla `cert.pem` i certifikatkatalogen.** Du behöver vara root:
+
+```bash
+sudo su
+mv /home/operationsadmin/cert.pem /etc/shiny-server/certs/
+cd /etc/shiny-server/certs/
+```
+
+5. **Skriv ut innehållet i det nya `cert.pem` och kopiera hela texten** (alla rader, inklusive `-----BEGIN CERTIFICATE-----` och `-----END CERTIFICATE-----`):
+
+```bash
+cat cert.pem
+```
+
+6. **Öppna `fullchain.pem` och byt ut det översta certifikatet.** `fullchain.pem` innehåller tre certifikat efter varandra; det översta (som slutar med första `-----END CERTIFICATE-----`) är serverns eget cert och det är det som ska bytas mot texten du kopierade i steg 5. De två efterföljande (mellan- och rotcertifikat) lämnas orörda.
+
+```bash
+nano fullchain.pem
+```
+
+Spara med *Ctrl+O*, *Enter*, *Ctrl+X*.
+
+7. **Verifiera att den nya filen är giltig** innan du startar om nginx:
+
+```bash
+openssl x509 -in /etc/shiny-server/certs/fullchain.pem -noout -dates -subject
+nginx -t
+```
+
+`nginx -t` ska svara `syntax is ok` / `test is successful`. Om något ser fel ut — backa till backupen från steg 3 innan du startar om!
+
+8. **Starta om nginx** så att den läser in det nya certifikatet:
+
+```bash
+systemctl restart nginx
+```
+
+9. **Testa utifrån** att webben svarar med rätt certifikat:
+
+```bash
+echo | openssl s_client -servername shiny.regiondalarna.se -connect shiny.regiondalarna.se:443 2>/dev/null | openssl x509 -noout -dates
+```
+
+`notAfter` ska nu visa det nya utgångsdatumet. Testa även att gå in på en Shinyapp och en webbrapport i en webbläsare och kontrollera att låset i adressfältet ser ok ut och visar det nya utgångsdatumet.
+
+:::{.callout-tip}
+## Privat nyckel byts bara om IT bytt nyckelpar
+Normalt återanvänds samma `privatekey.pem` mellan förnyelser och behöver inte röras. Om IT däremot skickar både ett nytt cert *och* en ny privat nyckel (t.ex. vid byte av nyckelpar) — ersätt även `privatekey.pem` innan du startar om nginx. Verifiera då att cert och nyckel matchar:
+
+```bash
+openssl x509 -noout -modulus -in /etc/shiny-server/certs/fullchain.pem | openssl md5
+openssl rsa  -noout -modulus -in /etc/shiny-server/certs/privatekey.pem | openssl md5
+```
+
+De två hasharna ska vara identiska. Skiljer de sig — använd inte nyckeln, något har blivit fel i leveransen från IT.
+:::
+
+## Statisk webbrapport-hosting{#statisk-hosting}
+
+Vi serverar statiska webbrapporter (HTML från RMarkdown/Quarto) från samma Shiny-server som Shinyapparna, men under en separat domän (`samhallsanalys.regiondalarna.se`). Apparna och rapporterna lever fredligt sida vid sida tack vare en `try_files`-fallback i nginx — rapporter under `/srv/rapporter/` har företräde, och allt som inte matchar en rapport faller igenom till `/srv/shiny-server/` som vanligt.
+
+Det här avsnittet beskriver hur infrastrukturen sattes upp första gången. Sätter du upp en ny Shiny-server och vill ha samma uppdelning så följer du stegen nedan. Är allting redan på plats behöver du bara hantera webbrapporterna via `webbrapport_publicera()`, se avsnittet [Webbrapporter](#webbrapporter).
+
+### Översikt över komponenterna
+
+| Komponent | Plats | Funktion |
+|-----------|-------|----------|
+| `/srv/rapporter/` | Shiny-servern | Roten där alla statiska rapporter serveras från |
+| `rapport-deploy` | Linux-användare på Shiny-servern | Äger filerna under `/srv/rapporter/` |
+| `www-data` | Linux-grupp | Gruppen som nginx kör som — får läsrätt till rapportfilerna |
+| `/usr/local/bin/rapport_deploy.sh` | Shiny-servern | Bash-script som rsync:ar in nya rapporter och sätter rättigheter |
+| `samhallsanalys-rapporter` | GitHub-repo | Gemensamt repo för alla publicerade rapporter (en mapp per rapport under `public/`) |
+| Self-hosted runner med label `rapport` | Shiny-servern | Kör GitHub Actions-deploys som användaren `rapport-deploy` |
+| nginx `try_files`-fallback | `/etc/nginx/sites-available/` | Sätter `/srv/rapporter/` före `/srv/shiny-server/` i routningen |
+
+Logiken är medvetet samma som för Shinyapparna: en användare skriver (deploy-användaren), en grupp läser (webbservern). Inga manuella steg krävs vid normala publiceringar.
+
+### Skapa användare, grupp och katalog
+
+På Shiny-servern (som `operationsadmin` med `sudo`):
+
+```bash
+# Skapa rapport-deploy-användaren
+sudo adduser --system --group --shell /bin/bash --home /home/rapport-deploy rapport-deploy
+
+# Lägg rapport-deploy i gruppen www-data så att nginx kan läsa filerna
+sudo usermod -aG www-data rapport-deploy
+
+# Skapa rotkatalogen
+sudo mkdir -p /srv/rapporter
+sudo chown rapport-deploy:www-data /srv/rapporter
+sudo chmod 2755 /srv/rapporter
+```
+
+Setgid-biten (`2` i `2755`) gör att nya filer och underkataloger automatiskt ärver gruppen `www-data` — vilket är vad nginx behöver för att kunna servera dem.
+
+### Deploy-script på servern
+
+Skapa `/usr/local/bin/rapport_deploy.sh` som rsync:ar in nya rapporter, sätter rättigheter och kontrollerar att inga rapportnamn krockar med befintliga Shiny-appar:
+
+```bash
+sudo nano /usr/local/bin/rapport_deploy.sh
+sudo chmod 755 /usr/local/bin/rapport_deploy.sh
+sudo chown root:root /usr/local/bin/rapport_deploy.sh
+```
+
+Skriptet:
+
+* Validerar att källkatalogen (`public/`) finns och inte är tom.
+* Kontrollerar att ingen rapportmapp under `public/` heter samma som en befintlig Shiny-app under `/srv/shiny-server/` — om så är fallet avbryts deployen med ett tydligt felmeddelande (annars hade nginx-fallbacken inte fungerat förutsägbart).
+* Kör `rsync -a --delete public/ /srv/rapporter/` så att `/srv/rapporter/` speglar exakt det som finns i repots `public/`-mapp.
+* Sätter ägarskap (`rapport-deploy:www-data`), rättigheter (`2755` på kataloger, `644` på filer).
+
+### nginx-konfiguration
+
+I serverblocket för Shiny-servern lägger man till en `try_files`-direktiv så att statiska rapporter har företräde framför Shiny-server-proxyn. Principen: nginx letar först efter en matchande fil under `/srv/rapporter/`, och om ingen hittas faller det igenom till proxyn.
+
+Exempel (förenklat):
+
+```nginx
+server {
+    server_name shiny.regiondalarna.se samhallsanalys.regiondalarna.se;
+    # ... ssl-konfig, listen-direktiv m.m. ...
+
+    # Statiska webbrapporter har företräde
+    location / {
+        root /srv/rapporter;
+        try_files $uri $uri/index.html @shiny;
+    }
+
+    # Allt som inte matchar en statisk rapport går vidare till Shiny-servern
+    location @shiny {
+        proxy_pass http://127.0.0.1:3838;
+        # ... övriga proxy-headers ...
+    }
+}
+```
+
+Reload:a nginx efter ändringarna:
+
+```bash
+sudo nginx -t        # syntaxkontroll
+sudo systemctl reload nginx
+```
+
+Testa både en känd rapport-url och en känd Shiny-app-url för att säkerställa att fallback:en fungerar i båda riktningarna.
+
+### Self-hosted runner för rapport-deploys
+
+GitHub Actions-deployen kör som användaren `rapport-deploy` via en egen self-hosted runner med labeln `rapport`. Den lever sida vid sida med Shiny-app-runnern (`shiny-deploy`) på samma server — de stör inte varandra eftersom de kör som olika användare och har olika labels. Workflowen i *samhallsanalys-rapporter* har `runs-on: [ self-hosted, rapport ]` och plockas alltså bara upp av rapport-runnern.
+
+Som `rapport-deploy`:
+
+```bash
+sudo su - rapport-deploy
+mkdir -p ~/actions-runner && cd ~/actions-runner
+
+# Hämta senaste runner-paketet — kolla aktuell version och token via
+# GitHub: Organization settings → Actions → Runners → New self-hosted runner
+curl -O -L https://github.com/actions/runner/releases/download/<version>/actions-runner-linux-x64-<version>.tar.gz
+tar xzf actions-runner-linux-x64-<version>.tar.gz
+
+# Konfigurera mot organisationen (Region-Dalarna), label = rapport
+./config.sh --url https://github.com/Region-Dalarna --token <engångstoken> --labels rapport
+```
+
+Tillbaka som `operationsadmin` — installera och starta som systemd-tjänst så att runnern startar automatiskt vid omstart:
+
+```bash
+cd /home/rapport-deploy/actions-runner
+sudo ./svc.sh install rapport-deploy
+sudo ./svc.sh start
+sudo ./svc.sh status
+```
+
+Efter detta dyker en ny runner upp (typiskt `<servernamn>-rapport`) som aktiv under organisations-inställningarna på GitHub, och alla jobb med `runs-on: [ self-hosted, rapport ]` plockas upp av den.
+
+### Skapa GitHub-repot samhallsanalys-rapporter
+
+Som administratör för Region-Dalarna-organisationen på GitHub:
+
+1. Skapa ett nytt privat repo under organisationen, döpt till `samhallsanalys-rapporter`.
+2. Klona det lokalt till `c:/gh/samhallsanalys-rapporter/`.
+3. Lägg in initial-strukturen (workflow, hooks, gitattributes, public/-mapp, README) — strukturen är dokumenterad i repots egen `README.md`.
+4. Skapa både `master` och `publicera` som brancher och pusha båda:
+
+```bash
+git checkout -b master
+git add .
+git commit -m "Initial: workflow, hooks, struktur"
+git push -u origin master
+git checkout -b publicera
+git push -u origin publicera
+```
+
+5. Sätt `master` som default-branch under repots Settings → Branches på GitHub.
+
+Eftersom workflowen i `.github/workflows/deploy.yml` triggas av push till `publicera` så är den första push:en till `publicera` också det första riktiga testet av hela kedjan (runner → deploy-skript → nginx).
+
+### DNS för samhallsanalys.regiondalarna.se
+
+För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` behöver DNS-recordet för domänen peka mot Shiny-serverns publika IP. Det hanteras via IT genom ett vanligt ärende — be om en A-record för `samhallsanalys.regiondalarna.se` mot Shiny-serverns IP. När DNS:en propagerat (kan ta upp till några timmar beroende på TTL) bör ett anrop till `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` svara med rapportens HTML.
+
+# Sammanfattning
+
+* En ny Shinyapp skapas från scratch med funktionen `shinyapp_skapa_med_github_repo("appnamn")` som finns i *func_API.R*.
+* På en ny dator: kör `git config --global user.name "..."` och `git config --global user.email "..."` så att `shinyapp_publicera()` kan skapa merge-commits.
+* Vi arbetar vanligtvis i `master` och gör commits och pushar till repositoryt på Github.
+* Vid behov kan vi arbeta i andra utvecklings-brancher som sedan mergas in i `master`.
+* Publicera genom att merge:a `master` → produktionsbranchen med funktionen `shinyapp_publicera("appnamn")` som finns i *func_API.R* (`publicera-publik` för publika servern, `publicera-intern` för den interna).
+* En push till produktionsbranchen triggar deployment via GitHub Actions som sköter deploy till `/srv/shiny-server/`.
+* Shiny-koden ligger direkt i repo-roten (ingen `app/`-undermapp), med renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) bredvid. Se [renv-miljö på Shiny-servern](#renv-shinyserver).
+* En app tas bort med `shinyapp_avpublicera("appnamn")` och flyttas mellan servrarna med `shinyapp_flytta("appnamn", till = ...)`.
+* Rättigheter på app-katalogerna under `/srv/shiny-server/` följer principen *en användare skriver, en grupp läser* — `shiny-deploy:shiny` med läge `2775`/`664`. Deploy-skriptet `/usr/local/bin/shiny_deploy.sh` säkerställer rätt grupp och läge vid varje körning, vilket förutsätter att `shiny-deploy` är medlem i gruppen `shiny`. Se [Rättigheter på app-katalogerna i `/srv/shiny-server/`](#rattigheter-app-kataloger).
+* Statiska webbrapporter (RMarkdown/Quarto) publiceras med `webbrapport_publicera("rapportnamn")` och blir åtkomliga på `https://samhallsanalys.regiondalarna.se/<rapportnamn>/`. **Förutsättning:** `.qmd`/`.Rmd`-filen måste vara klar, commit:ad och pushad i rapportens egna repo *innan* funktionen körs — `webbrapport_publicera()` rör inte källrepot, den kopierar bara den renderade HTML-filen till *samhallsanalys-rapporter*-repot. Se avsnittet [Webbrapporter](#webbrapporter).
+* Webbrapporterna serveras från `/srv/rapporter/` på samma Shiny-server som Shinyapparna via en `try_files`-fallback i nginx. Infrastrukturen sätts upp en gång per server enligt avsnittet [Statisk webbrapport-hosting](#statisk-hosting).
+* **TLS-certifikatet** för Shiny-servern hanteras manuellt och Samhällsanalys ansvarar för att hålla det ajour. Det är ett wildcard-cert som IT förnyar centralt ca en gång per år; vi byter ut `fullchain.pem` på servern och startar om nginx. Sätt en kalenderpåminnelse minst 30 dagar innan `notAfter`. Se [Certifikathantering (TLS/SSL)](#certifikathantering).

@@ -1,0 +1,323 @@
+---
+title: "r5r - multimodal tillgänglighetsanalys"
+#subtitle: "Samhällsanalys, Region Dalarna"
+author: "Samhällsanalys, Region Dalarna"
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+lang: sv
+format:
+  html:
+    include-in-header: www/favicon.html
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+    smooth-scroll: true
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Vad är r5r?
+
+r5r är ett R-paket som använder **R5-motorn** (utvecklad av Conveyal)
+för att beräkna restider och tillgänglighet med kollektivtrafik, gång,
+cykel och bil. Paketet är byggt för att modellera multimodala resor och 
+är optimerat för att effektivt göra storskaliga analyser med miljontals 
+ursprung-destination-par.
+
+R5-motorn är samma motor som används i Conveyals analysplattform och är
+särskilt lämpad för tillgänglighetsanalyser inom transportplanering och
+regional analys.
+
+Se <https://ipeagit.github.io/r5r/index.html> för mer information om
+paketet och dess funktioner.
+
+## Förutsättningar
+
+### Java
+
+r5r kräver **Java 21** och att minne allokeras *innan* paketet laddas. Kör följande innan paket laddas in:
+
+``` r
+options(java.parameters = "-Xmx8G")  # allokera 8 GB RAM till Java
+library(r5r)
+```
+
+### Indatafiler
+För att kunna bygga nätverket och grafen som r5r använder krävs vägnätsdata från OpenStreetMap samt GTFS data över kollektivtrafiken.
+Följande filer behövs i en och samma mapp (`data_path`) från villken r5r sedan läser in data för att bygga nätverket:
+
+| Fil             | Format      | Beskrivning                           |
+|-----------------|-------------|---------------------------------------|
+| Vägnät          | `.osm.pbf`  | OpenStreetMap-data för gång och cykel |
+| Kollektivtrafik | `gtfs.zip` | Tidtabeller och linjenät              |
+
+## Hämta OpenStreetMap-data och GTFS-data
+
+I denna metodbeskrivning sammanfattas processen för att hämta geodata och kollektivtrafikdata med hjälp av det givna R-skriptet. Processen består huvudsakligen av två delar:
+
+- **Hämta OSM-data (OpenStreetMap):** Vi definierar ett geografiskt område och laddar ner OSM-data från Geofabrik. 
+- **Hämta GTFS-data (trafikdata):** Vi anropar en funktion som hämtar GTFS-flöden från Trafiklab/ResRobot för valt dataset (t.ex. hela Sverige). 
+
+### Hämta OSM-data
+- **Ladda ner OSM-data med `osmextract`:** Vi använder paketet **osmextract** och funktionen `oe_get()` för att hämta OSM-data från Geofabrik (det går även att hämta direkt från hemsidan). I detta exempel laddas hela Sverige:
+  ```r
+  oe_get(
+    place = "Sweden",
+    provider = "geofabrik",
+    download_directory = "data/"
+  )
+  ```
+Funktionen `oe_get()` letar upp och laddar ner det senaste PBF-filen för Sverige från Geofabrik och läser in data som ett `sf`-objekt. Geofabrik tillhandahåller dagligen uppdaterade utdrag av OSM-data för Sverige.
+*Utdata:* en geografisk fil (t.ex. `sweden-latest.osm.pbf`) i angiven mapp samt ett inläst sf-objekt (om så önskas).
+
+
+- **Bestäm område:** Vi använder funktionen `hamta_karta` (från Region Dalarnas funktionsbibliotek) för att hämta önskat polygon som vi vill klippa vägnätet efter ("regionkoder = 20" -> Dalarnas län):
+  ```r
+  area <- hamta_karta(karttyp = "lan_lm", regionkoder = 20) %>% 
+    st_transform(crs = 4326)
+  ```
+  *Indata:* regionkod/län (20). *Utdata:* en spatial polygon (`sf`-objekt) för Dalarna.  
+
+- **Skapa `.poly`-fil:** För att eventuellt kunna beskära OSM-data i efterhand skapas en .poly-fil från polygonen. Funktion `sf_to_poly()` konverterar sf-objektets koordinater till textformat med lång-kort datummarkering. Detta format stöds av verktyg som Osmosis eller Osmium för polygonuttag. Sätt namnet på .poly-filen till aktuellt geografiskt område. 
+  ```r
+  sf_to_poly(area, file = "data/dalarna.poly", name = "dalarna")
+  ```
+*Utdata:* en .poly-textfil som kan användas av Osmosis/Osmium vid beskärning.
+
+- **Klipp OSM-datan med .poly filen`:**
+För att ta ut vägnätet för ett begränsat geografiskt område klipps OSM-datan till det område som omfattas av .poly filen som skapats.:
+  ```r
+system('osmosis --rb G:/.../data/sweden-latest.osm.pbf --bounding-polygon   file="G:/.../data/dalarna.poly" --wb G:/.../data/dalarna.osm.pbf'
+  ```
+  *"..." ersätts med full sökväg till mappstruktur där projektet och datan ligger
+
+## Hämtning, validering och rensning av GTFS-data
+
+### Bakgrund
+
+r5r använder R5-motorn (Conveyal) som är striktare än OpenTripPlanner
+vad gäller GTFS-datakvalitet. För att nätverket ska byggas korrekt krävs
+att GTFS-datan uppfyller GTFS-specifikationens krav. Eventuell valideringen utförs
+med Google GTFS-validator via R-paketet `gtfstools`.
+
+För att läsa mer om de specifika variablerna och filerna i GTFS-datan se
+<https://gtfs.org/documentation/schedule/schedule-best-practices/> 
+
+### Hämta GTFS-data 
+
+GTFS-data finns lagrad i databasen och kan hämtas med hjälp av funktionerna som ligger i <https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_gtfs.R>
+
+- **Anropa GTFS-hämtningsfunktion:** Data hämtas genom `hamta_gtfs_data()` (från Region Dalarnas funktionsbibliotek) vilken skickar en förfrågan till Trafiklab/ResRobot för att ladda ner angivet GTFS-flöde. Exempel:
+  ```r
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_gtfs.R", encoding = "utf-8", echo = FALSE)
+  gtfs_data <- gtfs_hamta_for_r5r(con,
+                               schema     = "gtfs",
+                               output_zip = NULL,
+                               datum      = NULL)
+  ```
+För att få med alla operatörer som trafikerar Dalarna hämtas GTFS Sweden 3 och läses in till databasen och schemat "gtfs". Funktionen `gtfs_hamta_for_r5r` rengör gtfs datan genom att anropa funktionen`gtfs_rensa_for_r5r`och returnerar sedan endast de tabeller som r5r använder.
+
+#### Rensning av gtfs-data
+`gtfs_rensa_for_r5r()` förbereder ett GTFS-objekt för ruttberäkning i r5r genom en serie rensnings- och normaliseringsåtgärder. 
+1. Funktionen tar bort anropsstyrd trafik (route_type 1501) och konverterar icke-standardiserade tågkoder (100, 103, 106) till GTFS-standardkoden för järnväg (2). 
+2. Därefter kaskadfiltreras beroende tabeller – trips, stop_times, calendar och calendar_dates – så att endast poster kopplade till kvarvarande linjer och trafikdagar behålls. 
+3. Parent stations tas bort. Datan innehåller stationer med `location_type = 1`. Dessa hierarkiska poster hanteras dåligt av r5r och enbart faktiska hållplatser (`location_type = 0`) behålls. Tillhörande stop_times rensas bort.
+4. Kolumnen shape_dist_traveled som orsakar valideringsfel i r5r tas bort.
+5. Tabellerna attributions och transfers tas bort helt, och feed_info-datumen sätts dynamiskt utifrån faktiska trafikdagar i calendar_dates då fälten `feed_start_date` och `feed_end_date` saknas i `feed_info.txt` och måste läggas till för att säkerställa korrekt datumhantering i r5r
+
+Funktionen returnerar det rensade GTFS-objektet och kan anropas fristående eller via gtfs_hamta_for_r5r().
+
+## Bygga nätverket
+
+``` r
+cores <- parallel::detectCores()-1 # Kör på alla kärnor utom en
+options(java.parameters = "-Xmx8G")
+library(r5r)
+
+r5r_natverk <- setup_r5(
+  data_path = "path/till/data",
+  overwrite = FALSE,  # TRUE = bygg om nätverket, FALSE = använd befintligt
+  verbose = TRUE
+)
+```
+
+`overwrite = FALSE` återanvänder ett befintligt byggt nätverk
+(`.dat`-fil) och sparar tid. Sätt `overwrite = TRUE` när GTFS-data eller
+OSM-data har ändrats.
+
+**För att validera att nätverket byggts korrekt bör man kontrollera r5r.log filen.**
+
+Bra — inga fel:
+
+- Detected 0 errors in feed. Total patterns: XXXX
+
+Dåligt — fel finns:
+
+- Feed contains high priority errors, not finding patterns. Detected XXXX errors in feed.
+
+## Beräkna restidsmatris med `travel_time_matrix`
+
+### Grundläggande anrop
+
+``` r
+t_dt <- travel_time_matrix(
+  r5r_network       = r5r_natverk,
+  origins           = o_punkt,         # sf-objekt med id, lon, lat
+  destinations      = d_punkt,         # sf-objekt med id, lon, lat
+  mode              = c("TRANSIT", "WALK"),
+  departure_datetime = as.POSIXct(
+    "2026-05-25 06:30:00",
+    tz = "Europe/Stockholm"            # datum och tid när man lämnar startpunkt
+  ),
+  time_window       = 60L,             # minuter efter departure_datetime
+  max_walk_time     = 15L,             # max gångtid i minuter
+  max_trip_duration = 60L,             # max total restid i minuter
+  percentiles       = c(5, 10, 50),    # vilka percentiler som returneras
+  n_threads         = cores            # antal parallella trådar - sätts genom detectCores() innan
+)
+```
+
+### Parameterbeskrivning
+
+#### `departure_datetime`
+
+Tidpunkten då personen **lämnar hemmet** — inte avgångstiden för
+kollektivtrafiken. Måste vara ett `POSIXct`-objekt.
+
+``` r
+as.POSIXct("2026-05-25 06:30:00", tz = "Europe/Stockholm")
+```
+
+#### `time_window`
+
+Antal minuter efter `departure_datetime` som r5r simulerar avgångar. Med
+`time_window = 60` och `departure_datetime = 06:30` simuleras avgångar
+från hemmet var minut mellan 06:30 och 07:30.
+
+**Viktigt:** `time_window` styr när personen lämnar hemmet, inte när
+kollektivtrafiken avgår.
+
+#### `max_walk_time`
+
+Maximal gångtid i minuter, både till och från hållplats. Påverkar vilka
+hållplatser som är tillgängliga från startpunkten.
+
+#### `max_trip_duration`
+
+Maximal total restid **dörr-till-dörr** inklusive gångtid till
+hållplats, väntetid, restid på fordonet och gångtid från hållplats till
+destination. Resor som överstiger detta värde returneras inte.
+
+#### `percentiles`
+
+Anger vilka percentiler av restidsfördelningen som returneras. Med
+`time_window = 60` simuleras 60 avgångar — percentilerna sammanfattar
+fördelningen av restider över dessa avgångar.
+
+#### `mode`
+
+Anger transportmedel. För kollektivtrafikanalyser används alltid
+`c("TRANSIT", "WALK")` — WALK måste inkluderas för att r5r ska kunna
+modellera gången till och från hållplatser. Standard är `WALK` om inget
+anges.
+
+## Tolka resultatet
+
+### Outputformat
+
+`travel_time_matrix` returnerar en tabell med en rad per
+ursprung-destination-kombination:
+
+| Kolumn            | Beskrivning                            |
+|-------------------|----------------------------------------|
+| `from_id`         | ID för ursprungspunkten                |
+| `to_id`           | ID för destinationspunkten             |
+| `travel_time_p5`  | 5:e percentilen av restidsfördelningen |
+| `travel_time_p50` | Median (50:e percentilen)              |
+
+`NA` innebär att ingen resa hittades inom `max_trip_duration` för den
+kombinationen.
+
+### Tolkning av percentiler
+
+Percentilerna beskriver fördelningen av restider över de simulerade
+avresetidpunkterna inom `time_window`. Med `time_window = 60` simuleras 60
+avresor (en per minut):
+
+| Percentil | Krav | Tolkning |
+|------------------------|------------------------|------------------------|
+| p5 | \~3 av 60 avresor ger resa inom gränsen | Det finns ett smalt tidsfönster då resan är möjlig |
+| p10 | \~6 av 60 avresor ger resa inom gränsen | Resan är möjlig vid några tillfällen under morgonen |
+| p25 | 15 av 60 avresor ger resa inom gränsen | Resan är möjlig vid en fjärdedel av avgångarna |
+| p50 | 30 av 60 avresor ger resa inom gränsen | Resan är möjlig vid hälften av avresorna — typisk tillgänglighet |
+| p80 | 48 av 60 avresor ger resa inom gränsen | Resan är möjlig nästan oavsett när under morgonen avresan sker— robust tillgänglighet |
+
+### Val av percentil för tillgänglighetsanalys
+
+Valet av percentil påverkar hur tillgänglighet definieras:
+
+-   **p5–p10** passar för glesbygd där trafiken är gles men det finns
+    *någon* möjlighet att resa
+-   **p50** kräver tätare trafik och mäter *typisk* tillgänglighet
+-   **p80** kräver tät trafik och mäter *robust* tillgänglighet
+
+## Beräkna andel med tillgänglighet
+
+``` r
+library(dplyr)
+
+# Klassificera per ursprungspunkt
+t_df_filter <- data.frame(t_dt) %>%
+  group_by(from_id) %>%
+  summarise(
+    tillganglig_p05 = any(travel_time_p5  <= 60, na.rm = TRUE),
+    tillganglig_p10 = any(travel_time_p10 <= 60, na.rm = TRUE),
+    tillganglig_p50 = any(travel_time_p50 <= 60, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Joina med befolkningsdata
+t_df_join <- left_join(
+  t_df_filter,
+  befolkning,
+  by = c("from_id" = "id")
+)
+
+# Beräkna andel
+andel <- t_df_join %>%
+  summarise(
+    tot_befolkning   = sum(antal, na.rm = TRUE),
+    andel_p05        = round(100 * sum(antal[tillganglig_p05], na.rm = TRUE) /
+                         sum(befolkning$antal), 1),
+    andel_p10        = round(100 * sum(antal[tillganglig_p10], na.rm = TRUE) /
+                         sum(befolkning$antal), 1),
+    andel_p50        = round(100 * sum(antal[tillganglig_p50], na.rm = TRUE) /
+                         sum(befolkning$antal), 1)
+  )
+
+print(andel)
+```
+
+**Viktigt:** Ursprungspunkter som saknas i `t_dt` (r5r hittade ingen
+resa alls) räknas automatiskt som otillgängliga eftersom de inte ingår i
+täljaren men ingår i nämnaren via befolkningsdatan.
+
+## Metodreflektioner
+
+-   Restiden är **dörr-till-dörr** inklusive gångtid till och från
+    hållplats samt väntetid — inte bara restiden på fordonet
+-   Analysen gäller ett specifikt datum och tar hänsyn till den faktiska
+    tidtabellen för det datumet
+-   `time_window` fångar variation i turtäthet — glesa linjer ger höga
+    percentilvärden även om det finns *någon* möjlighet att resa
+-   Gånghastigheten är fast (standard \~1.3 m/s) och tar inte hänsyn
+    till lutning, barriärer eller individuella förutsättningar
+-   Nätverket baseras på OSM och eventuella brister i kartan kan påverka
+    resultatet

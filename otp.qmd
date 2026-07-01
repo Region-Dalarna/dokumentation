@@ -1,0 +1,135 @@
+---
+title: "OpenTripPlanner (OTP)"
+author: "Samhällsanalys"
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+lang: sv
+format:
+  html:
+    include-in-header: favicon.html
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+---
+
+# Introduktion
+
+OpenTripPlanner (OTP) är en öppen och plattformsoberoende ruttplanerare skriven i Java. Mjukvaran kombinerar data från OpenStreetMap (OSM) med kollektivtrafikens tidtabeller i GTFS-format för att beräkna multimodala resor – det vill säga resor som kan innehålla kombinationer av gång, cykel och kollektivtrafik.
+
+# Hur vi kör OTP
+
+Vi kör OTP version 2.3.0 som en lokal server på en intern serveryta som nås via fjärrskrivbord. Serverytan måste ha java installerat. Arbetsflödet ser i korthet ut så här:
+
+Datainsamling – Vi laddar ner OSM-data för Sverige från Geofabrik och klipper den till Dalarnas län med hjälp av Osmosis. GTFS-data hämtas från Dalatrafik och förbehandlas eventuellt genombland annat korrigering av shape_dist_traveled-dubbletter och mappning av ruttyper.
+
+Grafbygge – OSM- och GTFS-datan kombineras till en ruttgraf (graph.obj) som OTP sedan använder för sina beräkningar. Grafen behöver byggas om när underliggande data uppdateras.
+
+Serverstart – OTP-servern startas lokalt och lyssnar på port 8801. En konfigurationsfil (otp-config.json) aktiverar SandboxAPITravelTime som ger oss tillgång till isokron-API:t.
+
+Isokronberäkning – Vi skickar förfrågningar till serverns isokron-API via R, med koordinater för målpunkter, önskade tidsintervall, transportsätt och övriga parametrar. Resultaten returneras som GeoJSON-polygoner som vi konverterar till sf-objekt i R.
+
+Export och analys – Isokronerna sparas som GeoPackage-filer och kan visualiseras i QGIS, Shiny-appar eller andra GIS-verktyg.
+
+Samtliga steg styrs via R-skript.
+
+
+```{r}
+#| echo: false
+```
+
+# Installation och uppsättning av OTP
+
+För att köra tillgänglighetsanalsyer genom OTP så ehöver det vara korrekt uppsatt. Om inte en befintlig uppsättning finns så följer man nedan steg.
+
+OTP förväntar sig en specifik mappstruktur. Skapa en arbetsmapp (här kallad otp) med en undermapp för all data:
+
+```         
+C:/otp/
+├── otp-2.3.0-shaded.jar
+└── data_otp/
+    ├── dt_gtfs.zip              ← GTFS-data (måste ha "gtfs" i filnamnet)
+    ├── dalarna.osm.pbf          ← filtrerad OSM-data
+    └── otp-config.json          ← huvudkonfiguration
+```
+
+### Steg för steg vid konfiguration av ny OTP-installation
+
+1.  Skapa mappstruktur enligt ovan
+2.  Hämta .jar fil som är motorn för körningen JAR-filen hämtas här. Vi använder i nuläget version 2.3.0 och vill man uppdatera sig till en nyare version så bör man ha i åtanke att R funktionerna behöver ändras. <https://repo1.maven.org/maven2/org/opentripplanner/otp/> Placera filen i arbetsmappen (C:/otp/)
+
+# Hämta och förbereda indata
+OTP behöver tre typer av indata för att bygga en ruttgraf: vägdata från OpenStreetMap, kollektivtrafikdata i GTFS-format och ett punktlager med de målpunkter man vill analysera tillgänglighet till eller från. I nedan förutsetts variabeln *mapp_namn* vara mappen där input datan till OTP-ruttningen placeras.
+
+## OpenStreetMap
+OSM-data i PBF-format laddas ner från https://download.geofabrik.de/europe/sweden-latest.osm.pbf och täcker hela Sverige. Eftersom en rikstäckande fil ger en onödigt stor graf som kräver mycket minne filtreras datan ner till det geografiska analysområdet.
+Filtreringen görs med hjälp av https://wiki.openstreetmap.org/wiki/Osmosis/Quick_Install_(Windows):
+
+
+###Geografisk filtrering
+Man behöver en .poly-fil som avgränsar analysområdet (t.ex. Dalarnas län) som används för att klippa ut relevant data. Följande kod kan användas för att skapa en .poly fil.
+```{r}
+sf_to_poly <- function(sf_obj, file, name = "polygon") {
+  
+  # säkerställ WGS84
+  if (sf::st_crs(sf_obj)$epsg != 4326) {
+    sf_obj <- sf::st_transform(sf_obj, 4326)
+  }
+  
+  # extrahera polygonens koordinater
+  poly <- sf::st_geometry(sf_obj)[[1]]
+  poly <- sf::st_cast(poly, "POLYGON")[[1]]  # ytterring
+  
+  coords <- poly
+  
+  sink(file)
+  cat(name, "\n")
+  cat("1\n")
+  
+  for (i in 1:(nrow(coords)-1)) {
+    cat(coords[i,1], coords[i,2], "\n")
+  }
+  
+  # lägg till första koordinaterna igen så att polygonet sluts
+  cat(coords[1,1], coords[1,2], "\n")
+  
+  
+  cat("END\n")
+  cat("END\n")
+  sink()
+  
+  message("Skrev polyfil: ", file)
+}
+
+# Skriv .poly fil till önskad mapp
+sf_to_poly(sf_obj, file = paste0(namn_mapp, "/dalarna.poly"), name = "Dalarna")
+```
+
+Efter att .poly fil över önskar geografiskt område skapats så kör man osmosis genom nedan kod i R
+```{r}
+cmd <- glue(
+  'osmosis --rb "{namn_mapp}/geofabrik_sweden-latest.osm.pbf" ',
+  '--bounding-polygon file="{namn_mapp}/dalarna.poly" ',
+  '--wb "{namn_mapp}/dalarna.osm.pbf"'
+)
+
+system(cmd)
+```
+
+
+
+
+
+Den filtrerade filen (dalarna_filtered.osm.pbf) placeras i data_otp/.
+## GTFS 
+Viktigt är att ta bort anropsstryd trafik i gtfs datan då otp .23.0 ej stöder detta och grafen då inte kommer byggas. 
+
+## Punktlager
+
+```         
+postgis
+```
+
+## Punktlager
+För att undersöka hur ruttningen gått till så kan man kopiera .jar filen och sedan byta ändelsen till .zip. 
