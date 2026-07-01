@@ -1,5 +1,6 @@
 ---
 title: "Arbetssätt med Shiny"
+title_table: "Att arbeta med Shiny"
 #subtitle: "Samhällsanalys, Region Dalarna"
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified

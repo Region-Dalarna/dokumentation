@@ -4,9 +4,9 @@ description: "Teknisk dokumentation för Samhällsanalys, Region Dalarna"
 listing:
   contents: "*.qmd"
   type: table
-  fields: [title, description, date]
+  fields: [title_table, description, date]
   field-display-names:
-    title: "Titel"
+    title_table: "Titel"
     description: "Beskrivning"
     date: "Datum"
   sort: "date desc"

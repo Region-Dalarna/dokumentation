@@ -105,6 +105,14 @@
   text-decoration: underline;
 }
 
+.quarto-listing-table td:nth-child(2) {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- 5. FOOTER ---- */
 .nav-footer {
   color: var(--rd-text-muted);

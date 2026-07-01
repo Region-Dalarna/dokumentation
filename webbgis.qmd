@@ -1,5 +1,6 @@
 ---
 title: "Region Dalarnas Webb-GIS"
+title_table: "Region Dalarnas Webb-GIS"
 #subtitle: "Samhällsanalys, Region Dalarna"
 author: "Samhällsanalys"
 date: last-modified

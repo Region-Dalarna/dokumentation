@@ -1,5 +1,6 @@
 ---
 title: "Socialt hållbara bostadsområden (SHB)"
+title_table: "Socialt hållbara bostadsområden (SHB)"
 author: "Samhällsanalys"
 date: last-modified
 lang: sv

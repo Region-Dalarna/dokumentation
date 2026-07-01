@@ -1,5 +1,6 @@
 ---
 title: "Arbetssätt med PostgreSQL och PostGIS"
+title_table: "Arbetssätt med PostgreSQL och PostGIS"
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
