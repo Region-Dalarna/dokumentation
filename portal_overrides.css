@@ -1,59 +1,86 @@
 /* ============================================================
-  portal_overrides.css
-Portal-specifik styling för dokumentations-/webbsideportaler
-byggda med webbsida_med_portal_skapa_med_github_repo().
+   portal_overrides.css
+   Portal-specifik styling för dokumentations-/webbsideportaler
+   byggda med webbsida_med_portal_skapa_med_github_repo().
 
-Laddas EFTER regiondalarna_ruf.css i _quarto.yml, så att basen
-(färger, typsnitt) sätts där och denna fil bara lägger till det
-som är specifikt för Quartos listing-sidor.
-============================================================ */
-  
-  :root {
-    --rd-petrol: #158daf;
-      --rd-petrol-mork: #0e6a85;
-      --rd-bakgrund-ljus: #f7f9fa;
-      --rd-text: #1c1c1c;
-  }
+   Laddas EFTER regiondalarna_ruf.css i _quarto.yml, så att basen
+   (färger, typsnitt) sätts där och denna fil bara lägger till det
+   som är specifikt för Quartos listing-sidor. Återanvänder basens
+   designtokens (--rd-primary m.fl.) istället för att duplicera dem.
+   ============================================================ */
 
-/* Rubrik och ingress på startsidan */
-  .quarto-title-block .title {
-    color: var(--rd-petrol-mork);
-    font-weight: 600;
-  }
+/* ---- 1. NAVBAR (mörk bakgrund, logga + "Samhällsanalys"-text) ---- */
+.navbar {
+  background-color: var(--rd-primary) !important;
+}
 
-/* Sökrutan i listing-sidan */
-  .quarto-listing .listing-search input[type="text"] {
-    border: 1px solid var(--rd-petrol);
-    border-radius: 4px;
-    padding: 0.4rem 0.6rem;
-  }
+.navbar .nav-link,
+.navbar-brand {
+  color: #ffffff !important;
+}
+
+.navbar-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  line-height: 1;
+}
+
+.navbar-brand img {
+  margin-bottom: 0;
+}
+
+/* Matchar .rd-header__right span i regiondalarna_ruf.css exakt */
+.navbar-brand::after {
+  content: "Samhällsanalys";
+  font-size: 0.55rem;
+  font-weight: 400;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: #ffffff;
+  opacity: 0.65;
+}
+
+/* ---- 2. STARTSIDANS RUBRIK ---- */
+.quarto-title-block .title {
+  color: var(--rd-primary-dark);
+  font-weight: 600;
+}
+
+/* ---- 3. SÖKRUTAN I LISTING-SIDAN ---- */
+.quarto-listing .listing-search input[type="text"] {
+  border: 1px solid var(--rd-primary);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+}
 
 .quarto-listing .listing-search input[type="text"]:focus {
   outline: none;
-  border-color: var(--rd-petrol-mork);
-  box-shadow: 0 0 0 2px rgba(21, 141, 175, 0.2);
+  border-color: var(--rd-primary-dark);
+  box-shadow: 0 0 0 2px var(--rd-accent-soft);
 }
 
-/* Tabellistningen (type: table) */
-  .quarto-listing-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
+/* ---- 4. TABELLISTNINGEN (type: table) ---- */
+.quarto-listing-table {
+  width: 100%;
+  border-collapse: collapse;
+}
 
 .quarto-listing-table thead th {
-  background-color: var(--rd-petrol);
+  background-color: var(--rd-primary);
   color: #ffffff;
-    text-align: left;
+  text-align: left;
   padding: 0.6rem 0.8rem;
   font-weight: 500;
 }
 
 .quarto-listing-table tbody tr {
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--rd-border);
 }
 
 .quarto-listing-table tbody tr:hover {
-  background-color: var(--rd-bakgrund-ljus);
+  background-color: var(--rd-bg);
 }
 
 .quarto-listing-table td {
@@ -62,7 +89,7 @@ som är specifikt för Quartos listing-sidor.
 }
 
 .quarto-listing-table td a {
-  color: var(--rd-petrol-mork);
+  color: var(--rd-primary-dark);
   text-decoration: none;
   font-weight: 500;
 }
@@ -71,20 +98,13 @@ som är specifikt för Quartos listing-sidor.
   text-decoration: underline;
 }
 
-/* Footer */
-  .nav-footer {
-    color: #6b6b6b;
-      font-size: 0.85rem;
-  }
-
-  .navbar {
-    background-color: var(--rd-petrol) !important;
-  }
-  .navbar .nav-link, .navbar-brand {
-    color: #ffffff !important;
-  }
+/* ---- 5. FOOTER ---- */
+.nav-footer {
+  color: var(--rd-text-muted);
+  font-size: var(--rd-fs-small);
+}
 
 /* Lägg portal-specifika overrides här vid behov — denna fil hämtas
-från depot och delas mellan alla portal-repon, så undvik att lägga
-in regler som bara gäller en enskild portal. Sådana hör hemma i en
-lokal CSS-fil i det enskilda repot istället. */
+   från depot och delas mellan alla portal-repon, så undvik att lägga
+   in regler som bara gäller en enskild portal. Sådana hör hemma i en
+   lokal CSS-fil i det enskilda repot istället. */
