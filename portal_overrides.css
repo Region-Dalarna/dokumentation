@@ -43,6 +43,12 @@
   white-space: nowrap;
 }
 
+/* Loggan/texten ska inte vara klickbar — bara "← Tillbaka" länkar till startsidan */
+.navbar-brand {
+  pointer-events: none;
+  cursor: default;
+}
+
 /* ---- 2. STARTSIDANS RUBRIK ---- */
 .quarto-title-block .title {
   color: var(--rd-primary-dark);
