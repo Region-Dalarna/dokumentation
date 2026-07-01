@@ -15,4 +15,10 @@ page-layout: full
 title-block-banner: false
 ---
 
+```{=html}
+
+  .navbar-nav .nav-item:first-child { display: none; }
+
+```
+
 Den här sidan listar all dokumentation i detta repository. Lägg till en ny `.qmd`-fil i repo-roten med en YAML-header (`title`, `description`, `date`) så dyker den upp automatiskt här vid nästa publicering. Tar du bort filen försvinner den lika automatiskt.

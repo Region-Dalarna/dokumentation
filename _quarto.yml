@@ -8,6 +8,7 @@ website:
   search: true
   navbar:
     title: false
+    logo: logo_liggande_fri_vit.png
     left:
       - href: index.html
         text: "← Tillbaka"
