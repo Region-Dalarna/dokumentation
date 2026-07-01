@@ -21,4 +21,4 @@ title-block-banner: false
 </style>
 ```
 
-Den här sidan listar all dokumentation i detta repository. Lägg till en ny `.qmd`-fil i repo-roten med en YAML-header (`title`, `description`, `date`) så dyker den upp automatiskt här vid nästa publicering. Tar du bort filen försvinner den lika automatiskt.
+Den här sidan listar all dokumentation i detta repository. Skapa en ny sida med `dokumentation_sida_skapa()`, eller lägg till en ny `.qmd`-fil manuellt i repo-roten med en YAML-header (`title`, `description`, `date`) — så dyker den upp automatiskt här vid nästa publicering. Tar du bort filen försvinner den lika automatiskt.
