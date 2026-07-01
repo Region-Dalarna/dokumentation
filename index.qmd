@@ -4,10 +4,10 @@ title: "Dokumentation – Samhällsanalys"
 listing:
   contents: "*.qmd"
   type: table
-  fields: [title, description, date]
+  fields: [title, listing-description, date]
   field-display-names:
     title: "Titel"
-    description: "Beskrivning"
+    listing-description: "Beskrivning"
     date: "Datum"
   sort: ["date desc", "title"]
   filter-ui: true
