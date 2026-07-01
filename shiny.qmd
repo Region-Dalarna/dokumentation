@@ -1,6 +1,6 @@
 ---
-title: "Arbetssätt med Shiny"
-subtitle: ""
+title: "Shiny"
+subtitle: "Om våra arbetssätt för att jobba med Shinyappar och våra Shiny-servrar"
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv

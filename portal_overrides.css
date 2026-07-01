@@ -106,14 +106,15 @@
 }
 
 .quarto-listing-table td:nth-child(2) {
-  display: -webkit-box !important;
+  vertical-align: top;
+}
+
+.beskrivning-clamp {
+  display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  overflow: hidden !important;
+  overflow: hidden;
   text-overflow: ellipsis;
-  white-space: normal;
-  max-height: calc(1.5em * 2);
-  line-height: 1.5em;
 }
 
 /* ---- 5. FOOTER ---- */

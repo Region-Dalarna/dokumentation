@@ -1,6 +1,6 @@
 ---
-title: "Instruktioner för att använda pxweb2-funktioner"
-subtitle: "Datahämtning från PxWebAPI v2"
+title: "Pxweb2"
+subtitle: "Instruktioner för att använda pxweb2-funktioner för datahämtning från PxWebAPI v2"
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv

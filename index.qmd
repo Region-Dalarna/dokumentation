@@ -26,7 +26,16 @@ title-block-banner: false
 <script>
 document.addEventListener("DOMContentLoaded", function() {
   document.querySelectorAll(".quarto-listing-table td:nth-child(2)").forEach(function(cell) {
-    cell.title = cell.textContent.trim();
+    var fullText = cell.textContent.trim();
+    cell.title = fullText;
+
+    // Linda innehållet i ett eget span så line-clamp kan verka
+    // oberoende av tabellcellens egen layoutmotor.
+    cell.innerHTML = "";
+    var span = document.createElement("span");
+    span.className = "beskrivning-clamp";
+    span.textContent = fullText;
+    cell.appendChild(span);
   });
 });
 </script>
