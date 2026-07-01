@@ -77,6 +77,13 @@ som är specifikt för Quartos listing-sidor.
       font-size: 0.85rem;
   }
 
+  .navbar {
+    background-color: var(--rd-petrol) !important;
+  }
+  .navbar .nav-link, .navbar-brand {
+    color: #ffffff !important;
+  }
+
 /* Lägg portal-specifika overrides här vid behov — denna fil hämtas
 från depot och delas mellan alla portal-repon, så undvik att lägga
 in regler som bara gäller en enskild portal. Sådana hör hemma i en
