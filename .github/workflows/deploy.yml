@@ -9,6 +9,10 @@ jobs:
     runs-on: [self-hosted, "rapport-intern"]
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Installera R-paket från .qmd-filer
+        continue-on-error: true
+        run: sudo SOURCE_DIR="$(pwd)" /usr/local/bin/installera_qmd_paket.sh "$(pwd)"
 
       - name: Render
         run: quarto render
