@@ -4,6 +4,7 @@ project:
 
 website:
   title: "Dokumentation – Samhällsanalys"
+  favicon: favicon.ico
   search: true
   page-footer:
     center: "Samhällsanalys, Region Dalarna"
