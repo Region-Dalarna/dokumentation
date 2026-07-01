@@ -1,6 +1,6 @@
 ---
 title: "OpenTripPlanner (OTP)"
-subtitle: ""
+subtitle: "Sätta upp och använda en lokal OTP-server på en virtuell maskin"
 author: "Samhällsanalys"
 date: last-modified
 lang: sv

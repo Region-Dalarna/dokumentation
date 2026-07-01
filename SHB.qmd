@@ -1,6 +1,6 @@
 ---
 title: "Socialt hållbara bostadsområden (SHB)"
-subtitle: ""
+subtitle: "Arbetssätt och kriterier för att skapa egna kommunala delområden"
 author: "Samhällsanalys"
 date: last-modified
 lang: sv

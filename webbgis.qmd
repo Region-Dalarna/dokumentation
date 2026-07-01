@@ -1,6 +1,6 @@
 ---
-title: "Region Dalarnas Webb-GIS"
-subtitle: ""
+title: "Webb-GIS"
+subtitle: "Hur vi arbetar med Origo, QGIS Server och PostGIS i Region Dalarnas Webb-GIS"
 #subtitle: "Samhällsanalys, Region Dalarna"
 author: "Samhällsanalys"
 date: last-modified

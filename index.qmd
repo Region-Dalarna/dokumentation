@@ -9,7 +9,7 @@ listing:
     title: "Titel"
     description: "Beskrivning"
     date: "Datum"
-  sort: "date desc"
+  sort: ["date desc", "title"]
   filter-ui: true
   max-description-length: 100000
 page-layout: full

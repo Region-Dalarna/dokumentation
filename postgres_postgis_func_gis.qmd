@@ -1,6 +1,6 @@
 ---
-title: "Arbetssätt med PostgreSQL och PostGIS"
-subtitle: ""
+title: "PostgreSQL/PostGIS "
+subtitle: "Hur vi arbetar med PostgreSQL och PostGIS i func_GIS.R"
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
