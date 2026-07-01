@@ -15,10 +15,6 @@ format:
     code-copy: true
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
-```
-
 # Inledning
 
 På denna sida beskriver vi hur vi arbetar med våra PostgreSQL- och PostGIS-databaser från R. Dokumentationen täcker hela kedjan — från att skapa databaser, scheman och användare till att tilldela roller och behörigheter, läsa och skriva data samt hantera geografisk information med PostGIS.

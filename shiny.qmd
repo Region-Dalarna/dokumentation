@@ -15,10 +15,6 @@ format:
     code-copy: true
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
 # Inledning
 
 På denna sida beskriver vi hur vi arbetar med skapande, förvaltning, uppdatering och publicering av våra Shiny-rapporter och statiska webbrapporter (RMarkdown/Quarto) samt även hur vi installerar och konfigurerar en Shiny-server. Syftet är att ha ett smidigt, snabbt och säkert flöde där endast kvalitetssäkrade versioner skickas till vår Shiny-server, samt även att ha dokumentation på hur vi installerar och konfigurerar en Shiny-server för att kunna felsöka eller vid behov installera fler servrar.
@@ -767,6 +763,19 @@ depot/
 ```
 
 `_quarto.yml.tmpl` sätter bland annat `execute: eval: false` som standard i hela projektet — dokumentationsfiler ska **visa** kodexempel, inte köra dem på servern. Utan detta riskerar filer som gör riktiga API-anrop (t.ex. mot SCB:s statistikdatabas) att få deployen att fela, eftersom servern kan sakna nätverksåtkomst eller autentisering mot den externa tjänsten. Enskilda chunkar kan sätta `#| eval: true` som override där man medvetet vill köra kod (t.ex. en `setup`-chunk som bara laddar hjälpfunktioner via `source()`).
+
+**Viktigt att känna till:** eftersom `eval: false` gäller *alla* chunkar i *alla* `.qmd`-filer om inget annat anges, blir gamla `setup`-chunkar som skrevs innan detta upplägg fanns (typiskt `` ```{r setup, include=FALSE} `` med `knitr::opts_chunk$set(...)`, ibland följt av ett `source(...)`-anrop) helt **overksamma** — de körs aldrig, oavsett vad som står i dem. Det gäller även om chunken själv råkar innehålla `eval = FALSE` i sitt eget `opts_chunk$set()`-anrop; den satsen körs ju heller aldrig, av samma skäl. Sådana chunkar är därför säkra att ta bort helt om de bara sätter chunk-optioner eller källar in hjälpfunktioner som inget annat i dokumentet faktiskt anropar (vilket är det vanliga i rena dokumentationsfiler, där koden bara visas som exempel).
+
+Om man **verkligen** vill att en chunk ska köras på riktigt vid rendering (t.ex. för att generera en tabell eller ett diagram live, eller för att faktiskt ladda in funktioner som resten av dokumentet anropar), måste den ha ett eget, explicit `eval: true` som bryter sig loss från det globala värdet:
+
+```r
+#| label: setup
+#| eval: true
+#| include: false
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
+```
+
+Utan `#| eval: true` uteblir `source()`-anropet tyst — inget felmeddelande, koden bara körs aldrig, vilket annars är lätt att missa vid en snabb granskning av filen.
 
 `index.qmd.tmpl` innehåller själva listningen:
 

@@ -15,12 +15,6 @@ format:
     code-copy: true
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-
-source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
-```
-
 ## Inledning
 
 Det här dokumentet är en enkel och praktisk introduktion till hur man använder funktionerna för att hämta data från SCB:s PxWebAPI version 2. Syftet är att snabbt kunna komma igång med datahämtning, förstå de vanligaste parametrarna och känna till de hjälpfunktioner som underlättar arbetet.

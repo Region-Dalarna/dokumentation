@@ -14,10 +14,6 @@ format:
     code-copy: true
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
-```
-
 # Inledning
 
 Filen `func_API.R` innehåller en rad hjälpfunktioner för att interagera med GitHub direkt från R. Funktionerna förenklar vardagliga arbetsuppgifter som att lista repositories och filer, kontrollera status på lokala ändringar, committa och pusha till GitHub samt att klona och hämta hem repos.

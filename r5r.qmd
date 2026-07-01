@@ -19,10 +19,6 @@ editor:
     wrap: 72
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
 ## Vad är r5r?
 
 r5r är ett R-paket som använder **R5-motorn** (utvecklad av Conveyal)

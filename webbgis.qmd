@@ -15,10 +15,6 @@ format:
     code-copy: true
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
 # Inledning
 
 Denna rapport beskriver hur Samhällsanalys inom Region Dalarna arbetar med webb-GIS. Nedan beskrivs detaljerat webbkartans funktioner, hur den är uppsatt och hur man går tillväga för att publicera och visualisera geografiskt underlag.

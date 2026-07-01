@@ -1,17 +1,17 @@
 ---
-  title: "Region Dalarnas Podcast"
+title: "Region Dalarnas Podcast"
 subtitle: "Redaktionellt och tekniskt arbetssätt för podden Läget i Dalarna"
 listing-description: "Hur Samhällsanalys arbetar med podden Läget i Dalarna, både redaktionellt och tekniskt — utrustning, hantering av inspelningar och publicering av nya avsnitt på Spotify."
 author: "Samhällsanalys"
 lang: sv
 format:
   html:
-  theme: cosmo
-toc: true
-toc-location: left
-toc-depth: 3
-number-sections: true
-code-copy: true
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
 ---
   
   # Inledning
