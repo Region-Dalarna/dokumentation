@@ -34,7 +34,7 @@
 /* Matchar .rd-header__right span i regiondalarna_ruf.css exakt */
 .navbar-brand::after {
   content: "Samhällsanalys";
-  font-size: 0.5rem;
+  font-size: 0.4rem;
   font-weight: 400;
   letter-spacing: 0.3px;
   text-transform: uppercase;
