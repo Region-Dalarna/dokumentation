@@ -117,6 +117,19 @@
   text-overflow: ellipsis;
 }
 
+/* ---- 4b. TOC ---- */
+.toc-logo-header {
+  background: var(--rd-primary);
+  border-radius: 8px 8px 0 0;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+}
+
+.toc-logo-header img {
+  height: 24px;
+  display: block;
+}
+
 /* ---- 5. FOOTER ---- */
 .nav-footer {
   color: var(--rd-text-muted);

@@ -21,6 +21,7 @@ format:
     css: [regiondalarna_ruf.css, portal_overrides.css]
     toc: true
     toc-title: "Innehållsförteckning"
+    include-after-body: toc_logga.html
 
 execute:
   eval: false

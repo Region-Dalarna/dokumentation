@@ -1,0 +1,14 @@
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    var toc = document.querySelector('#TOC') || document.querySelector('nav[role="doc-toc"]');
+    if (toc && toc.parentNode) {
+      var header = document.createElement('div');
+      header.className = 'toc-logo-header';
+      var img = document.createElement('img');
+      img.src = 'logo_liggande_fri_vit.png';
+      img.alt = 'Region Dalarna';
+      header.appendChild(img);
+      toc.parentNode.insertBefore(header, toc);
+    }
+  });
+</script>
