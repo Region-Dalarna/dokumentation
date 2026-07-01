@@ -175,7 +175,7 @@ Om du vill se tabellens värden för samtliga variabler:
 varden <- pxweb2_varden(meta)
 ```
 
-Du kan också skicka med en eller flera variabeler i parametern som heter variabler. Du kan använda både kod och klartext för variabeln (code eller label). Från tabellen vi hämtade metadata-objektet `meta` ovan kan vi alltså använda både `region` och `Region` (blir samma sak då parametern är shiftlägesokäsnlig, dvs. stora och små bokstäver spelar ingen roll), eller ´både `ContentsCode eller `tabellinnehåll`:
+Du kan också skicka med en eller flera variabeler i parametern som heter variabler. Du kan använda både kod och klartext för variabeln (code eller label). Från tabellen vi hämtade metadata-objektet `meta` ovan kan vi alltså använda `region` eller `Region` (blir samma sak då parametern är shiftlägesokäsnlig, dvs. stora och små bokstäver spelar ingen roll), eller såväl `ContentsCode` som `tabellinnehåll`:
 
 ```{r}
 #| echo: true
