@@ -142,7 +142,7 @@ pxweb2_variabler("TAB6568")
 Så här kan det se ut när man kör funktionen:
 ```{r}
 #| echo: true
-#| eval: true
+#| eval: false
 #| collapse: true
 #| comment: ""
 #| prompt: true
@@ -179,7 +179,7 @@ Du kan också skicka med en eller flera variabeler i parametern som heter variab
 
 ```{r}
 #| echo: true
-#| eval: true
+#| eval: false
 #| collapse: true
 #| comment: ""
 #| prompt: true
@@ -190,7 +190,7 @@ Det är särskilt användbart för att se vilka koder som finns:
 
 ```{r}
 #| echo: true
-#| eval: true
+#| eval: false
 #| collapse: true
 #| comment: ""
 #| prompt: true
