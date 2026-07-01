@@ -1,0 +1,15 @@
+---
+  title: "Dokumentation – Samhällsanalys"
+description: "Teknisk dokumentation för Samhällsanalys, Region Dalarna"
+listing:
+  contents: "*.qmd"
+exclude: ["index.qmd"]
+type: table
+fields: [title, description, date]
+sort: "date desc"
+filter-ui: true
+page-layout: full
+title-block-banner: false
+---
+  
+  Den här sidan listar all dokumentation i detta repository. Lägg till en ny `.qmd`-fil i repo-roten med en YAML-header (`title`, `description`, `date`) så dyker den upp automatiskt här vid nästa publicering. Tar du bort filen försvinner den lika automatiskt.

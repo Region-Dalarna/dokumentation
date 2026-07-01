@@ -1,0 +1,83 @@
+/* ============================================================
+  portal_overrides.css
+Portal-specifik styling för dokumentations-/webbsideportaler
+byggda med webbsida_med_portal_skapa_med_github_repo().
+
+Laddas EFTER regiondalarna_ruf.css i _quarto.yml, så att basen
+(färger, typsnitt) sätts där och denna fil bara lägger till det
+som är specifikt för Quartos listing-sidor.
+============================================================ */
+  
+  :root {
+    --rd-petrol: #158daf;
+      --rd-petrol-mork: #0e6a85;
+      --rd-bakgrund-ljus: #f7f9fa;
+      --rd-text: #1c1c1c;
+  }
+
+/* Rubrik och ingress på startsidan */
+  .quarto-title-block .title {
+    color: var(--rd-petrol-mork);
+    font-weight: 600;
+  }
+
+/* Sökrutan i listing-sidan */
+  .quarto-listing .listing-search input[type="text"] {
+    border: 1px solid var(--rd-petrol);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+  }
+
+.quarto-listing .listing-search input[type="text"]:focus {
+  outline: none;
+  border-color: var(--rd-petrol-mork);
+  box-shadow: 0 0 0 2px rgba(21, 141, 175, 0.2);
+}
+
+/* Tabellistningen (type: table) */
+  .quarto-listing-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+.quarto-listing-table thead th {
+  background-color: var(--rd-petrol);
+  color: #ffffff;
+    text-align: left;
+  padding: 0.6rem 0.8rem;
+  font-weight: 500;
+}
+
+.quarto-listing-table tbody tr {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.quarto-listing-table tbody tr:hover {
+  background-color: var(--rd-bakgrund-ljus);
+}
+
+.quarto-listing-table td {
+  padding: 0.6rem 0.8rem;
+  vertical-align: top;
+}
+
+.quarto-listing-table td a {
+  color: var(--rd-petrol-mork);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.quarto-listing-table td a:hover {
+  text-decoration: underline;
+}
+
+/* Footer */
+  .nav-footer {
+    color: #6b6b6b;
+      font-size: 0.85rem;
+  }
+
+/* Lägg portal-specifika overrides här vid behov — denna fil hämtas
+från depot och delas mellan alla portal-repon, så undvik att lägga
+in regler som bara gäller en enskild portal. Sådana hör hemma i en
+lokal CSS-fil i det enskilda repot istället. */

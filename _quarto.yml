@@ -1,0 +1,15 @@
+project:
+  type: website
+output-dir: _site
+
+website:
+  title: "Dokumentation – Samhällsanalys"
+search: true
+page-footer:
+  center: "Samhällsanalys, Region Dalarna"
+
+format:
+  html:
+  theme: cosmo
+css: styles.css
+toc: true
