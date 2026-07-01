@@ -22,9 +22,16 @@ jobs:
               if (length(datum) == 0 || datum == "") next
               rader <- readLines(fil, warn = FALSE)
               yaml_slut <- which(rader == "---")[2]
-              rader <- rader[!grepl("^date:", rader[1:yaml_slut])]
-              yaml_slut <- which(rader == "---")[2]
-              rader <- append(rader, paste0("date: ", datum), after = yaml_slut - 1)
+          
+              # Ta bort ev. befintlig date:-rad, ENDAST inom YAML-blocket
+              yaml_block <- rader[1:yaml_slut]
+              yaml_block <- yaml_block[!grepl("^date:", yaml_block)]
+          
+              # Sätt in nya date:-raden sist i YAML-blocket (före avslutande "---")
+              yaml_block <- append(yaml_block, paste0("date: ", datum), after = length(yaml_block) - 1)
+          
+              # Sätt ihop YAML-block + resten av filen orört
+              rader <- c(yaml_block, rader[(yaml_slut + 1):length(rader)])
               writeLines(rader, fil)
             }
           '
