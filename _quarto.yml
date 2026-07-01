@@ -7,6 +7,7 @@ website:
   favicon: favicon.ico
   search: true
   navbar:
+    title: false
     left:
       - href: index.html
         text: "← Tillbaka"
