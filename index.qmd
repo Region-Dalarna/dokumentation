@@ -5,6 +5,10 @@ listing:
   contents: "*.qmd"
   type: table
   fields: [title, description, date]
+  field-display-names:
+    title: "Titel"
+    description: "Beskrivning"
+    date: "Datum"
   sort: "date desc"
   filter-ui: true
 page-layout: full

@@ -6,6 +6,10 @@ website:
   title: "Dokumentation – Samhällsanalys"
   favicon: favicon.ico
   search: true
+  navbar:
+    left:
+      - href: index.html
+        text: "← Tillbaka"
   page-footer:
     center: "Samhällsanalys, Region Dalarna"
 
@@ -14,6 +18,7 @@ format:
     theme: cosmo
     css: [regiondalarna_ruf.css, portal_overrides.css]
     toc: true
+    toc-title: "Innehållsförteckning"
 
 execute:
   eval: false

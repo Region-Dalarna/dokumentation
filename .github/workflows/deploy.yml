@@ -9,6 +9,25 @@ jobs:
     runs-on: [self-hosted, "rapport-intern"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sätt datum från git-historik
+        run: |
+          Rscript -e '
+            qmd <- list.files(".", pattern = "\\.qmd$", full.names = TRUE)
+            qmd <- qmd[basename(qmd) != "index.qmd"]
+            for (fil in qmd) {
+              datum <- system2("git", c("log", "-1", "--format=%cs", "--", fil), stdout = TRUE)
+              if (length(datum) == 0 || datum == "") next
+              rader <- readLines(fil, warn = FALSE)
+              yaml_slut <- which(rader == "---")[2]
+              rader <- rader[!grepl("^date:", rader[1:yaml_slut])]
+              yaml_slut <- which(rader == "---")[2]
+              rader <- append(rader, paste0("date: ", datum), after = yaml_slut - 1)
+              writeLines(rader, fil)
+            }
+          '
       
       - name: Installera R-paket från .qmd-filer
         continue-on-error: true
