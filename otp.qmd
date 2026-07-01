@@ -1,6 +1,6 @@
 ---
 title: "OpenTripPlanner (OTP)"
-title_table: "OpenTripPlanner (OTP)"
+subtitle: ""
 author: "Samhällsanalys"
 date: last-modified
 lang: sv

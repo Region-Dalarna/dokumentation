@@ -1,6 +1,6 @@
 ---
 title: "r5r - multimodal tillgänglighetsanalys"
-title_table: "r5r - multimodal tillgänglighetsanalys"
+subtitle: ""
 #subtitle: "Samhällsanalys, Region Dalarna"
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
