@@ -1,6 +1,7 @@
 ---
 title: "Shiny"
 subtitle: "Om våra arbetssätt för att jobba med Shinyappar och våra Shiny-servrar"
+description: "Övergripande dokumentation för Shinyappar, webbrapporter och dokumentationsportaler vid Samhällsanalys — hur man skapar, reviderar och publicerar dem, samt hur Shiny-servrarna, GitHub Actions-deployen och delad R-infrastruktur är uppsatta och underhålls."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv

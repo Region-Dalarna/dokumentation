@@ -1,6 +1,7 @@
 ---
 title: "PostgreSQL/PostGIS "
 subtitle: "Hur vi arbetar med PostgreSQL och PostGIS i func_GIS.R"
+description: "Hur vi arbetar med PostgreSQL- och PostGIS-databaser från R via func_GIS.R. Täcker hela kedjan från att skapa databaser, scheman och användare till att tilldela behörigheter, läsa och skriva data samt hantera geografisk information med PostGIS."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
