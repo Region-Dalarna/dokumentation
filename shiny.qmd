@@ -1,7 +1,6 @@
 ---
-title: "Shiny"
-subtitle: "Om våra arbetssätt för att jobba med Shinyappar och våra Shiny-servrar"
-description: "Övergripande dokumentation för Shinyappar, webbrapporter och dokumentationsportaler vid Samhällsanalys — hur man skapar, reviderar och publicerar dem, samt hur Shiny-servrarna, GitHub Actions-deployen och delad R-infrastruktur är uppsatta och underhålls."
+title: "Arbetssätt med Shiny"
+#subtitle: "Samhällsanalys, Region Dalarna"
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -711,6 +710,46 @@ Funktionen:
 
 Efter det lägger man bara till nya `.qmd`-filer i repo-roten och pushar — ingen ytterligare registrering behövs.
 
+## Lägga till en ny sida i en dokumentationsportal
+
+Att skapa en ny `.qmd`-sida för hand fungerar förstås, men `dokumentation_sida_skapa()` ger ett konsekvent skelett och en tydlig kontroll av filnamnet innan något skapas:
+
+```r
+dokumentation_sida_skapa(
+  titel           = "Arbetssätt med DBI",
+  beskrivning     = "Kort beskrivning som visas i listan på startsidan",
+  filnamn         = "arbetssatt_med_dbi",     # obligatorisk, se filnamnsregler nedan
+  undertitel      = NULL,                     # valfri, visas på sidan men inte i tabellen
+  repo            = "dokumentation",          # default, kan pekas mot annat webbsida-med-portal-repo
+  lokal_root      = "c:/gh/",
+  oppna_i_rstudio = TRUE,
+  commit_och_push = FALSE
+)
+```
+
+Funktionen:
+
+1. **Validerar filnamnet strikt** innan något skapas eller ändras: inga mellanslag, inga versaler, inga svenska tecken (å/ä/ö) tillåts. Om filnamnet bryter mot detta stoppas funktionen direkt med ett tydligt felmeddelande och ett föreslaget, korrigerat filnamn — funktionen ändrar aldrig filnamnet automatiskt, det är alltid ett medvetet val av den som skapar sidan.
+2. **Kontrollerar att `repo` redan finns klonat lokalt** under `c:/gh/<repo>/`. Om mappen saknas stoppas funktionen med ett tydligt felmeddelande — den klonar inget automatiskt, eftersom repo-skapande hör hemma i `webbsida_med_portal_skapa_med_github_repo()`, inte här.
+3. **Kontrollerar att filen inte redan finns**, för att undvika att råka skriva över en befintlig sida.
+4. **Skapar filen** med ett minimalt, konsekvent skelett:
+   ```yaml
+   ---
+   title: "<titel>"
+   subtitle: "<undertitel, eller tom sträng om ej angiven>"
+   description: "<beskrivning>"
+   ---
+
+   ## Inledning
+
+   ## Struktur
+
+   ## Sammanfattning
+   ```
+   `subtitle` skrivs alltid ut som ett eget fält, med tomt värde (`""`) om `undertitel` inte angetts — för att alla `.qmd`-filer ska ha ett konsekvent YAML-format, oavsett om undertiteln fylls i vid skapandet eller läggs till senare. Se [Om `title` vs `subtitle` vs `description`](#mallar-i-depot) för varför de tre fälten hålls isär. Notera också att skelettet medvetet **saknar** ett `date:`-fält — det sätts automatiskt av deploy-pipelinen utifrån filens git-historik (se [Deploy-pipeline](#deploy-pipeline)) — och ingen egen `execute`-konfiguration, eftersom den redan ärvs från `_quarto.yml` på projektnivå.
+5. **Öppnar filen i RStudio** (om `oppna_i_rstudio = TRUE`) så man kan börja skriva direkt.
+6. **Committar och pushar valfritt** — om `commit_och_push = TRUE` anropas `github_commit_push()` direkt. Annars (default) lämnas filen som en väntande lokal ändring, och funktionen skriver ut en påminnelse om att köra `github_commit_push("<repo>")` när sidan är klar — sidan syns inte på portalen förrän det gjorts.
+
 ## Mallar i depot
 
 Portal-strukturen hålls som mallar i `Region-Dalarna/depot`, under `mallar/webbsida_portal/`, och hämtas via `depot_hamta_fran()` / `depot_skriv_mall_fran()` (se *func_API.R*) snarare än `raw.githubusercontent.com` rakt av — samma Fastly-cache-problematik som motiverade `source_utan_cache()` gäller här också.
@@ -739,11 +778,88 @@ listing:
     title: "Titel"
     description: "Beskrivning"
     date: "Datum"
-  sort: "date desc"
+  sort: ["date desc", "title"]
   filter-ui: true
+  max-description-length: 100000
 ```
 
 Notera att `index.qmd` **inte** behöver exkludera sig själv ur listan (`exclude`) — Quarto exkluderar automatiskt den sida som innehåller `listing`-definitionen ur sin egen lista. Ett tidigt försök att göra detta explicit med `exclude:` gav bara valideringsfel i olika former beroende på syntax; lösningen var att ta bort `exclude` helt.
+
+`sort: ["date desc", "title"]` sorterar nyast-först, med titel som tie-breaker för sidor med samma datum (vanligt eftersom flera sidor ofta får samma datum den dag ett helt nytt portal-repo skapas — se datumlogiken nedan).
+
+`max-description-length: 100000` är satt högt medvetet, för att i praktiken aldrig klippa av `description`-texten på YAML-nivå. Se nästa stycke för varför.
+
+**Om `title` vs `subtitle` vs `description`:** varje `.qmd`-fil bör hålla isär tre separata textfält, som alla har olika syfte:
+
+- **`title`** — kort, syns i tabellens klickbara titel-kolumn *och* som sidans egen stora rubrik *och* i webbläsarens flikrubrik. Quarto gör bara `title` klickbart i listningen (inget annat fält, t.ex. ett eget `title_table`, blir klickbart utan en egen anpassad EJS-mall — vilket bedömdes vara mer skört att förvalta än det är värt). Håll därför `title` kort och lämna en mer beskrivande rubrik till brödtexten om det behövs (`# Rubrik` som första raden i innehållet).
+- **`subtitle`** — visas på själva sidan, direkt under `title`, men tas **inte** med i listningens `fields:` och syns alltså aldrig i tabellen. Skrivs alltid ut som ett fält i skelettet från `dokumentation_sida_skapa()` (tomt `""` om ingen undertitel angetts), för ett konsekvent YAML-format mellan filer.
+- **`description`** — en **medvetet skriven, egen sammanfattning** för listningens tabellrad, separat från och kortare än sidans faktiska inledningstext. Lämnas `description` tomt eller för kort faller Quarto tillbaka på att auto-generera en sammanfattning genom att plocka de första meningarna ur brödtexten — vilket duplicerar text och ger sämre kontroll över vad som visas i tabellen. `description` är därför en obligatorisk parameter i `dokumentation_sida_skapa()`.
+
+### Utseende: avklippt beskrivningstext och dold navbar-länk
+
+Två CSS/JS-lösningar i `portal_overrides.css` och `index.qmd.tmpl` är värda att känna till om man bygger vidare på portal-mallen:
+
+**Avklippt tabelltext, med fullständig text vid hover.** `-webkit-line-clamp` fungerar inte tillförlitligt när den läggs direkt på ett `<td>`, eftersom tabellcellens egna layoutmotor (`display: table-cell`) konkurrerar med `-webkit-box` som line-clamp kräver. Lösningen är att låta ett litet script linda in cellens text i ett eget `<span class="beskrivning-clamp">` vid sidladdning, och lägga line-clamp på det spannet istället:
+
+```html
+```{=html}
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  document.querySelectorAll(".quarto-listing-table td:nth-child(2)").forEach(function(cell) {
+    var fullText = cell.textContent.trim();
+    cell.title = fullText;
+    cell.innerHTML = "";
+    var span = document.createElement("span");
+    span.className = "beskrivning-clamp";
+    span.textContent = fullText;
+    cell.appendChild(span);
+  });
+});
+</script>
+```
+```
+
+```css
+.beskrivning-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+```
+
+Samma script sätter också `cell.title` till den fulla, otrimmade texten — det ger en webbläsarnativ tooltip med hela beskrivningen vid hover, vilket är anledningen till att `max-description-length` sattes högt (annars finns aldrig den fulla texten i DOM:en att visa).
+
+**Dold länk på logga/text i navbaren.** `navbar-brand` (loggan + den understående "Samhällsanalys"-texten, se nedan) renderas av Quarto som ett klickbart `<a href="index.html">`, men eftersom portalen redan har en explicit "← Tillbaka"-länk ansågs dubbel navigering till samma mål förvirrande. Lösning i `portal_overrides.css`:
+
+```css
+.navbar-brand {
+  pointer-events: none;
+  cursor: default;
+}
+```
+
+Detta neutraliserar klick/hover på elementet utan att ta bort själva loggan, och utan att behöva bygga om navbaren med egen HTML.
+
+### Navbar: logga och "Samhällsanalys"-text
+
+`_quarto.yml.tmpl` sätter en logga i navbaren (`navbar: logo: logo_liggande_fri_vit.png`, hämtad från depot). Texten "Samhällsanalys" under loggan (som i Shinyapparnas header) läggs till med en ren CSS `::after`-pseudo-element i `portal_overrides.css`, med exakt samma typografiska värden som `.rd-header__right span` i `regiondalarna_ruf.css`:
+
+```css
+.navbar-brand::after {
+  content: "Samhällsanalys";
+  font-size: 0.5rem;
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: #ffffff;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+```
+
+`letter-spacing` och `font-size` justerades ner något från de första förslagen, eftersom en smalare navbar än Shinyapparnas header annars gjorde den versala texten bredare än loggan ovanför.
 
 ## Deploy-pipeline
 

@@ -1,7 +1,7 @@
 ---
 title: "OpenTripPlanner (OTP)"
 subtitle: "Sätta upp och använda en lokal OTP-server på en virtuell maskin"
-description: "Hur vi sätter upp och driftar en lokal OpenTripPlanner-server (OTP) för att beräkna multimodala restider och isokroner. Beskriver datainsamling från OSM och Dalatrafik, grafbygge, serverstart och hur isokronberäkningar görs och analyseras via R."
+listing-description: "Hur vi sätter upp och driftar en lokal OpenTripPlanner-server (OTP) för att beräkna multimodala restider och isokroner. Beskriver datainsamling från OSM och Dalatrafik, grafbygge, serverstart och hur isokronberäkningar görs och analyseras via R."
 author: "Samhällsanalys"
 date: last-modified
 lang: sv

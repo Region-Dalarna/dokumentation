@@ -1,7 +1,7 @@
 ---
 title: "Socialt hållbara bostadsområden (SHB)"
 subtitle: "Arbetssätt och kriterier för att skapa egna kommunala delområden"
-description: "Arbetssätt och process för Socialt hållbara bostadsområden (SHB) — en områdesindelning som kommunerna själva definierar och namnger för uppföljning och analys ur ett socialt hållbarhetsperspektiv. Beskriver insamling, nycklar mot NYKO och hantering av geometrier."
+listing-description: "Arbetssätt och process för Socialt hållbara bostadsområden (SHB) — en områdesindelning som kommunerna själva definierar och namnger för uppföljning och analys ur ett socialt hållbarhetsperspektiv. Beskriver insamling, nycklar mot NYKO och hantering av geometrier."
 author: "Samhällsanalys"
 date: last-modified
 lang: sv

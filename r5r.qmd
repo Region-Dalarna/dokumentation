@@ -1,7 +1,7 @@
 ---
 title: "r5r"
 subtitle: "R-paket för multimodal tillgänglighetsanalys"
-description: "r5r är ett R-paket byggt på R5-motorn (Conveyal) för att beräkna restider och tillgänglighet med kollektivtrafik, gång, cykel och bil. Lämpat för storskaliga tillgänglighetsanalyser inom transportplanering, inklusive Javakrav och indatafiler."
+listing-description: "r5r är ett R-paket byggt på R5-motorn (Conveyal) för att beräkna restider och tillgänglighet med kollektivtrafik, gång, cykel och bil. Lämpat för storskaliga tillgänglighetsanalyser inom transportplanering, inklusive Javakrav och indatafiler."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv

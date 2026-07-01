@@ -1,7 +1,7 @@
 ---
 title: "Webb-GIS"
 subtitle: "Hur vi arbetar med Origo, QGIS Server och PostGIS i Region Dalarnas Webb-GIS"
-description: "Hur Samhällsanalys arbetar med webb-GIS via Origo, QGIS Server och en gemensam PostGIS-databas. Beskriver systemöversikten med intern och publik server, hur kartfunktioner sätts upp och hur geografiskt underlag publiceras och visualiseras."
+listing-description: "Hur Samhällsanalys arbetar med webb-GIS via Origo, QGIS Server och en gemensam PostGIS-databas. Beskriver systemöversikten med intern och publik server, hur kartfunktioner sätts upp och hur geografiskt underlag publiceras och visualiseras."
 author: "Samhällsanalys"
 date: last-modified
 lang: sv

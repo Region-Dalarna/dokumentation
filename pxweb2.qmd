@@ -1,7 +1,7 @@
 ---
 title: "Pxweb2"
 subtitle: "Instruktioner för att använda pxweb2-funktioner för datahämtning från PxWebAPI v2"
-description: "Praktisk introduktion till att hämta statistik från SCB:s PxWebAPI v2 med func_pxweb2.R. Beskriver hur man hämtar metadata och variabelvärden, bygger query-listor, hanterar wildcards och senaste tidsperiod, samt slår ihop flera tabeller till ett dataset."
+listing-description: "Praktisk introduktion till att hämta statistik från SCB:s PxWebAPI v2 med func_pxweb2.R. Beskriver hur man hämtar metadata och variabelvärden, bygger query-listor, hanterar wildcards och senaste tidsperiod, samt slår ihop flera tabeller till ett dataset."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
