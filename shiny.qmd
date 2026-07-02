@@ -690,20 +690,22 @@ Den andra stora skillnaden är **listningen**. Webbrapporter och Shinyappar regi
 
 ```r
 webbsida_med_portal_skapa_med_github_repo(
-  github_repo = "dokumentation",
-  server      = "intern",                                    # "publik" eller "intern"
-  titel       = "Dokumentation – Samhällsanalys",
-  beskrivning = "Teknisk dokumentation för Samhällsanalys, Region Dalarna"
+  github_repo     = "dokumentation",
+  server          = "intern",                                # "publik" eller "intern"
+  titel           = "Dokumentation – Samhällsanalys",
+  beskrivning     = "Teknisk dokumentation för Samhällsanalys, Region Dalarna",
+  behorighet_team = "samhallsanalys"                          # NULL om inget team ska ges behörighet
 )
 ```
 
 Funktionen:
 
 1. Skapar ett nytt (som standard privat) repo i Region-Dalarna-orgen.
-2. Klonar ner det lokalt till `c:/gh/<github_repo>/` och säkerställer att branchen heter `main`.
-3. Hämtar mallfiler från `Region-Dalarna/depot` (se nedan) och fyller i repo-specifika värden (`titel`, `beskrivning`, `runner_label`, `github_repo`).
-4. Hämtar delad identitet (`regiondalarna_ruf.css`, `logo_liggande_fri_vit.png`) samt portal-specifik CSS från depot.
-5. Committar och pushar grundstrukturen till `main`, vilket triggar första deployen automatiskt.
+2. **Ger angivet team push-behörighet** på det nya repot (om `behorighet_team` inte är `NULL`), via `PUT /orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}` med `permission = "push"` (motsvarar `Write`-rollen i GitHub:s UI). Teamet måste redan finnas i organisationen för att detta ska fungera — annars loggas en varning men resten av funktionen fortsätter. `Write` räcker för att kunna committa, pusha och hantera pull requests, utan att ge full `Admin`-kontroll över repots inställningar; samma mönster som `skapa_webbrapport_github()` redan använder för webbrapporter.
+3. Klonar ner det lokalt till `c:/gh/<github_repo>/` och säkerställer att branchen heter `main`.
+4. Hämtar mallfiler från `Region-Dalarna/depot` (se nedan) och fyller i repo-specifika värden (`titel`, `beskrivning`, `runner_label`, `github_repo`).
+5. Hämtar delad identitet (`regiondalarna_ruf.css`, `logo_liggande_fri_vit.png`) samt portal-specifik CSS från depot.
+6. Committar och pushar grundstrukturen till `main`, vilket triggar första deployen automatiskt.
 
 Efter det lägger man bara till nya `.qmd`-filer i repo-roten och pushar — ingen ytterligare registrering behövs.
 
@@ -734,7 +736,7 @@ Funktionen:
    ---
    title: "<titel>"
    subtitle: "<undertitel, eller tom sträng om ej angiven>"
-   description: "<beskrivning>"
+   listing-description: "<beskrivning>"
    ---
 
    ## Inledning
@@ -743,7 +745,7 @@ Funktionen:
 
    ## Sammanfattning
    ```
-   `subtitle` skrivs alltid ut som ett eget fält, med tomt värde (`""`) om `undertitel` inte angetts — för att alla `.qmd`-filer ska ha ett konsekvent YAML-format, oavsett om undertiteln fylls i vid skapandet eller läggs till senare. Se [Om `title` vs `subtitle` vs `description`](#mallar-i-depot) för varför de tre fälten hålls isär. Notera också att skelettet medvetet **saknar** ett `date:`-fält — det sätts automatiskt av deploy-pipelinen utifrån filens git-historik (se [Deploy-pipeline](#deploy-pipeline)) — och ingen egen `execute`-konfiguration, eftersom den redan ärvs från `_quarto.yml` på projektnivå.
+   `subtitle` skrivs alltid ut som ett eget fält, med tomt värde (`""`) om `undertitel` inte angetts — för att alla `.qmd`-filer ska ha ett konsekvent YAML-format, oavsett om undertiteln fylls i vid skapandet eller läggs till senare. Se [Om `title` vs `subtitle` vs `listing-description`](#mallar-i-depot) för varför de tre fälten hålls isär, och varför fältet heter `listing-description` snarare än Quartos inbyggda `description`. Notera också att skelettet medvetet **saknar** ett `date:`-fält — det sätts automatiskt av deploy-pipelinen utifrån filens git-historik (se [Deploy-pipeline](#deploy-pipeline)) — och ingen egen `execute`-konfiguration, eftersom den redan ärvs från `_quarto.yml` på projektnivå.
 5. **Öppnar filen i RStudio** (om `oppna_i_rstudio = TRUE`) så man kan börja skriva direkt.
 6. **Committar och pushar valfritt** — om `commit_och_push = TRUE` anropas `github_commit_push()` direkt. Annars (default) lämnas filen som en väntande lokal ändring, och funktionen skriver ut en påminnelse om att köra `github_commit_push("<repo>")` när sidan är klar — sidan syns inte på portalen förrän det gjorts.
 
@@ -783,10 +785,10 @@ Utan `#| eval: true` uteblir `source()`-anropet tyst — inget felmeddelande, ko
 listing:
   contents: "*.qmd"
   type: table
-  fields: [title, description, date]
+  fields: [title, listing-description, date]
   field-display-names:
     title: "Titel"
-    description: "Beskrivning"
+    listing-description: "Beskrivning"
     date: "Datum"
   sort: ["date desc", "title"]
   filter-ui: true
@@ -797,13 +799,22 @@ Notera att `index.qmd` **inte** behöver exkludera sig själv ur listan (`exclud
 
 `sort: ["date desc", "title"]` sorterar nyast-först, med titel som tie-breaker för sidor med samma datum (vanligt eftersom flera sidor ofta får samma datum den dag ett helt nytt portal-repo skapas — se datumlogiken nedan).
 
-`max-description-length: 100000` är satt högt medvetet, för att i praktiken aldrig klippa av `description`-texten på YAML-nivå. Se nästa stycke för varför.
+`max-description-length: 100000` är satt högt medvetet, för att i praktiken aldrig klippa av beskrivningstexten på YAML-nivå. Se nästa stycke för varför.
 
-**Om `title` vs `subtitle` vs `description`:** varje `.qmd`-fil bör hålla isär tre separata textfält, som alla har olika syfte:
+**Om `title` vs `subtitle` vs `listing-description`:** varje `.qmd`-fil bör hålla isär tre separata textfält, som alla har olika syfte:
 
 - **`title`** — kort, syns i tabellens klickbara titel-kolumn *och* som sidans egen stora rubrik *och* i webbläsarens flikrubrik. Quarto gör bara `title` klickbart i listningen (inget annat fält, t.ex. ett eget `title_table`, blir klickbart utan en egen anpassad EJS-mall — vilket bedömdes vara mer skört att förvalta än det är värt). Håll därför `title` kort och lämna en mer beskrivande rubrik till brödtexten om det behövs (`# Rubrik` som första raden i innehållet).
 - **`subtitle`** — visas på själva sidan, direkt under `title`, men tas **inte** med i listningens `fields:` och syns alltså aldrig i tabellen. Skrivs alltid ut som ett fält i skelettet från `dokumentation_sida_skapa()` (tomt `""` om ingen undertitel angetts), för ett konsekvent YAML-format mellan filer.
-- **`description`** — en **medvetet skriven, egen sammanfattning** för listningens tabellrad, separat från och kortare än sidans faktiska inledningstext. Lämnas `description` tomt eller för kort faller Quarto tillbaka på att auto-generera en sammanfattning genom att plocka de första meningarna ur brödtexten — vilket duplicerar text och ger sämre kontroll över vad som visas i tabellen. `description` är därför en obligatorisk parameter i `dokumentation_sida_skapa()`.
+- **`listing-description`** — en **medvetet skriven, egen sammanfattning** för listningens tabellrad. Det här fältet heter medvetet **inte** `description` — Quartos inbyggda `description:`-nyckel renderas automatiskt som en ingress-text direkt på sidan (under `title`/`subtitle` i title-blocket), vilket dubblerar text mellan tabellraden och sidan om samma fält används för båda. Genom att döpa fältet till `listing-description` istället (ett namn Quarto inte tolkar som något särskilt) renderas det aldrig på själva sidan — bara `listing:` i `index.qmd` läser det, via `fields: [title, listing-description, date]`. `listing-description` är av samma skäl en obligatorisk parameter i `dokumentation_sida_skapa()`, och skrivs alltid separat från och kortare än sidans faktiska inledningstext.
+
+### Sökfunktionen: fritextsök över hela portalen, inte bara filtret
+
+Portalen har egentligen **två separata sökmekanismer**, värda att skilja på:
+
+- **Filtret ovanför tabellen på `index.qmd`** (`filter-ui: true`) söker bara i det som redan visas i listningen — titel, beskrivning, datum. Ytligt, men snabbt för att hitta rätt *dokument* bland flera.
+- **Sökikonen i navbaren** (`search: true` i `_quarto.yml`, sätts på projektnivå) bygger ett fullständigt textindex (`search.json`) över **allt innehåll på alla sidor**, inte bara det som syns i listningen. Den kan hitta en specifik term mitt inne i en lång fil som `pxweb2.qmd` även om ordet aldrig nämns i titel eller beskrivning, och fungerar från vilken sida som helst i portalen — inte bara från startsidan.
+
+De kompletterar alltså varandra: filtret för att hitta rätt dokument, sökikonen för att hitta ett specifikt stycke text var det än ligger. För en teknisk dokumentationsportal (där man ofta letar efter en specifik funktion, felkod eller kommandorad snarare än ett helt dokument) är den fullständiga sökningen ofta mer värdefull än filtret i praktiken — den bör därför hållas påslagen (`search: true`) som standard i `_quarto.yml.tmpl`.
 
 ### Utseende: avklippt beskrivningstext och dold navbar-länk
 
@@ -873,12 +884,25 @@ Detta neutraliserar klick/hover på elementet utan att ta bort själva loggan, o
 
 ## Deploy-pipeline
 
+**Man behöver aldrig rendera en `.qmd`-fil lokalt för att publicera den.** Hela poängen med portal-arkitekturen (till skillnad från webbrapporter, se jämförelsen ovan) är att `quarto render` körs **av GitHub Actions-runnern på servern**, som en del av varje deploy — inte av författaren innan push. Man skriver `.qmd`-filen, sparar, och pushar källfilen; servern sköter renderingen och publiceringen automatiskt.
+
+Det är också anledningen till att `.gitignore` i varje portal-repo (satt av `webbsida_med_portal_skapa_med_github_repo()`) uttryckligen exkluderar renderade filer:
+
+```
+.quarto/
+_site/
+*.html
+*_files/
+```
+
+Om man råkar klicka **Render** i RStudio lokalt för att förhandsgranska hur en sida ser ut (fullt möjligt och ibland smidigt för att snabbt kolla formatering), skapas en `<filnamn>.html` och en `<filnamn>_files/`-mapp lokalt i repo-roten — men de ska **aldrig committas eller pushas**. Dels är de överflödiga (servern renderar om exakt samma innehåll vid varje deploy oavsett), dels riskerar de att bli inaktuella eller råka skugga det som faktiskt publiceras om de av misstag hamnar i `_site/`-trädet. `.gitignore`-reglerna ovan skyddar mot att det händer av misstag, men värt att känna till *varför* de finns där.
+
 `deploy.yml.tmpl` (och därmed varje portals `.github/workflows/deploy.yml`) kör, i tur och ordning:
 
 1. **`actions/checkout@v4`** med `fetch-depth: 0` (full historik krävs av datumsteget nedan).
 2. **Sätt datum från git-historik** — sätter `date:` i varje `.qmd`-fils YAML-header till filens senaste commit-datum (`git log -1 --format=%cs -- <fil>`), körs i arbetskatalogen på servern och committas aldrig tillbaka till repot. Detta ersatte ett tidigare försök med `date: last-modified`, som satte samma (fel) datum på alla sidor — `actions/checkout` sätter alla filers mtime till checkout-tidpunkten, inte deras faktiska senaste ändring.
 3. **Installera R-paket från .qmd-filer** (`continue-on-error: true`) — scannar automatiskt alla `.qmd`-filer efter `library()`/`require()`-anrop och installerar saknade paket. Se eget avsnitt nedan.
-4. **`quarto render`**.
+4. **`quarto render`** — sker helt på servern, se ovan.
 5. **Publicera** — `rapport_deploy_repo.sh "$(pwd)/_site" "<repo-namn>"`.
 
 ### Automatisk paketinstallation: `installera_qmd_paket.sh`
