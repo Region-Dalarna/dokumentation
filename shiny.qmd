@@ -19,7 +19,7 @@ format:
 
 På denna sida beskriver vi hur vi arbetar med skapande, förvaltning, uppdatering och publicering av våra Shiny-rapporter och statiska webbrapporter (RMarkdown/Quarto) samt även hur vi installerar och konfigurerar en Shiny-server. Syftet är att ha ett smidigt, snabbt och säkert flöde där endast kvalitetssäkrade versioner skickas till vår Shiny-server, samt även att ha dokumentation på hur vi installerar och konfigurerar en Shiny-server för att kunna felsöka eller vid behov installera fler servrar.
 
-Webbrapporterna serveras från samma Shiny-server som Shinyapparna men under en egen domän (`samhallsanalys.regiondalarna.se`). De följer samma branch-modell (`master` + `publicera`) och Github Actions-flöde som Shinyapparna, men publiceras genom ett gemensamt repo (*samhallsanalys-rapporter*) och en egen R-funktion `webbrapport_publicera()`.
+Webbrapporterna serveras från samma servrar som Shinyapparna men under `/srv/rapporter/` istället för `/srv/shiny-server/`. Själva publiceringsflödet för webbrapporter och dokumentationsportaler beskrivs i den separata dokumentationen **[Publicering](publicering.html)** — den här sidan fokuserar på Shinyappar och på hur själva servern installeras och konfigureras.
 
 ## Vem är detta för — och var ska jag börja läsa?
 
@@ -34,14 +34,14 @@ Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-se
 
 :::{.callout-tip}
 ## 📄 Du ska skapa eller revidera en statisk webbrapport (RMarkdown/Quarto)
-Läs avsnittet **[Webbrapporter](#webbrapporter)**. Det är kort och fokuserat på publiceringsflödet via `webbrapport_publicera()`.
+Läs om själva publiceringsflödet i den separata dokumentationen **[Publicering](publicering.html)** — där beskrivs hur en webbrapport publiceras från sitt eget repo med `webbrapport_publicera()`.
 
 Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-server*.
 :::
 
 :::{.callout-tip}
 ## 📚 Du ska skapa eller lägga till innehåll i en dokumentationsportal (flera samlade .qmd-sidor)
-Läs avsnittet **[Dokumentationsportaler](#dokumentationsportaler)**. Skiljer sig från en enskild webbrapport genom att renderingen sker på servern vid varje deploy, och sidor listas automatiskt.
+Läs om hur du skapar portaler och skriver sidor i den separata dokumentationen **[Publicering](publicering.html)**. En dokumentationsportal skiljer sig från en enskild webbrapport genom att renderingen sker på servern vid varje deploy, och sidor listas automatiskt.
 
 Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-server*.
 :::
@@ -565,437 +565,20 @@ dataset_df <- DBI::dbGetQuery(con, "SELECT * FROM tillvaxtverket.gastnatter_utla
 DBI::dbDisconnect(con)
 ```
 
-# Webbrapporter{#webbrapporter}
+# Webbrapporter och dokumentationsportaler{#webbrapporter}
 
-Förutom interaktiva Shinyappar publicerar vi även statiska webbrapporter renderade från RMarkdown eller Quarto. De serveras under `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` och hanteras i ett gemensamt Github-repo: *samhallsanalys-rapporter*. Varje rapport bor i sitt eget källrepo under `c:/gh/<rapportnamn>/` med en `.qmd`- eller `.Rmd`-fil — det är där det vardagliga skrivandet sker. Publiceringen sker sedan med funktionen `webbrapport_publicera()`.
+Utöver interaktiva Shinyappar publicerar vi även **statiska webbrapporter** (en enskild renderad HTML-fil från RMarkdown/Quarto) och **dokumentationsportaler** (flera samlade `.qmd`-sidor som renderas på servern, som den portal du läser det här i). Båda serveras från samma servrar som Shinyapparna, men under `/srv/rapporter/` istället för `/srv/shiny-server/`.
 
-## TL;DR
+Själva publiceringsflödena för dessa — hur man publicerar en webbrapport från dess eget repo, hur man skapar en dokumentationsportal och skriver nya sidor, samt hur man skriver `.qmd`-filer korrekt — beskrivs i den separata dokumentationen **[Publicering](publicering.html)**. Den tekniska infrastrukturen bakom (deploy-pipeline, serverskript, runners, nginx) beskrivs i samma dokuments förvaltningsavsnitt.
 
-* Skapa/revidera rapporten i rapportens egna repo (`c:/gh/<rapportnamn>/<rapportnamn>.qmd`).
-* Rendera till `<rapportnamn>.html` med `self-contained: true`.
-* Commita och pusha källan + den renderade HTML-filen till `master` i rapport-repot.
-* Publicera till webben:
-```r
-webbrapport_publicera("rapportnamn")
-```
-
-Funktionen finns i *dalarnasUtilsR* (eller motsvarande hjälpfunktionspaket) tillsammans med `shinyapp_publicera()` och övriga Github-hjälpfunktioner.
-
-## Arbetsflöde
-
-**Viktigt:** Som det är nu (vi får se om vi ändrar det framöver) behöver `.qmd`/`.Rmd`-filen vara klar och commit:ad/pushad i sitt eget repo *innan* `webbrapport_publicera()` körs. Funktionen ändrar inget i rapportens källrepo — den kopierar bara över den renderade HTML-filen till *samhallsanalys-rapporter*-repot och publicerar därifrån. Källrepot behåller alltså sin egen historik, och *samhallsanalys-rapporter* fungerar som ett rent publiceringsregister.
-
-Rekommenderat flöde vid uppdatering av en rapport:
-
-1. Gör revideringar i `.qmd`/`.Rmd`-filen i rapportens egna repo (under `c:/gh/<rapportnamn>/`).
-2. Rendera rapporten lokalt med `self-contained: true` så att HTML-filen är fristående (ingen `_files/`-mapp med beroenden).
-3. Commita och pusha **både källfilen och den renderade HTML-filen** till `master` i rapport-repot.
-4. Kör `webbrapport_publicera("<rapportnamn>")`. Funktionen:
-   * validerar att HTML-filen inte är äldre än motsvarande `.qmd`/`.Rmd`,
-   * kopierar HTML-filen till `c:/gh/samhallsanalys-rapporter/public/<rapportnamn>/index.html`,
-   * commit:ar och pushar till `master` i *samhallsanalys-rapporter*,
-   * gör en *selektiv* merge — endast den enskilda rapportmappen — till `publicera`,
-   * vilket triggar deploy via GitHub Actions till `/srv/rapporter/<rapportnamn>/` på servern.
-
-Den selektiva merge:n är viktig: man uppdaterar en rapport i taget utan att andra rapporter på live-sajten påverkas, även om någon annan rapport har oavslutat arbete i `master`.
-
-## webbrapport_publicera()
-
-Funktionen har följande signatur i förenklad form:
-
-```r
-webbrapport_publicera(
-  rapport_repo,                                            # repo-namn under c:/gh/ där HTML-filen ligger
-  rapport_html_fil = paste0(rapport_repo, ".html"),        # path inom rapport_repo (kan ha undermappar)
-  github_org       = "Region-Dalarna",
-  publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = FALSE  # TRUE: tillåt stale HTML
-)
-```
-
-**Standardfallet** — HTML-filen ligger som `<rapport_repo>.html` i roten av rapport-repot:
-
-```r
-webbrapport_publicera("laget_i_dalarna")
-# → c:/gh/laget_i_dalarna/laget_i_dalarna.html  publiceras som
-#   https://samhallsanalys.regiondalarna.se/laget_i_dalarna/
-```
-
-**Annan källfil i samma repo** — t.ex. om man har flera HTML-utgåvor:
-
-```r
-webbrapport_publicera("laget_i_dalarna", "output/rapport_v2.html")
-# → c:/gh/laget_i_dalarna/output/rapport_v2.html  publiceras som
-#   https://samhallsanalys.regiondalarna.se/rapport_v2/
-```
-
-Eventuella undermappar i `rapport_html_fil` *ignoreras* för målmappens namn — bara HTML-filens basnamn (utan `.html`) styr url:en på webben. Filer utanför `rapport_repo` tillåts inte.
-
-## Källfilskontroll
-
-Funktionen jämför mtime på den renderade HTML-filen med eventuell `.qmd`- eller `.Rmd`-fil med samma stam i samma mapp. Om HTML-filen är äldre stoppas publiceringen — typiskt symptom på att man glömt att rendera om efter senaste revideringen. Vill man publicera ändå:
-
-```r
-webbrapport_publicera("laget_i_dalarna",
-                      publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = TRUE)
-```
-
-Samma kontroll finns även som en pre-commit-hook i *samhallsanalys-rapporter*-repot (icke-interaktiv så att schemalagda jobb funkar). Hooken aktiveras genom att köra en gång per klon:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-## Struktur för samhallsanalys-rapporter
-
-Alla publicerade webbrapporter samlas i ett gemensamt repo:
-
-```
-samhallsanalys-rapporter/
-├── .github/workflows/deploy.yml   # triggar deploy vid push till publicera
-├── .githooks/pre-commit           # stoppar commit om HTML är äldre än .qmd/.Rmd
-├── .gitattributes                 # markerar HTML/CSS/JS som binära
-├── public/                        # allt här deployas till /srv/rapporter/
-│   ├── laget_i_dalarna/
-│   │   └── index.html
-│   └── annan_rapport/
-│       └── index.html
-└── README.md
-```
-
-Strukturen påminner om Shiny-repona men förenklat — det finns ingen `app/`-mapp eftersom allt som publiceras är statiska HTML-filer. Mappen `public/` är den enda som rsync:as ut till servern; filer utanför `public/` (workflow-filer, README m.m.) deployas inte.
-
-Allt arbete sker normalt via `webbrapport_publicera()` — man behöver alltså inte göra något manuellt i *samhallsanalys-rapporter*-repot. Vid behov dokumenteras det manuella publiceringsflödet i repots egen `README.md`.
-
-# Dokumentationsportaler{#dokumentationsportaler}
-
-Utöver Shinyappar och enskilda webbrapporter publicerar vi också **dokumentationsportaler** — fristående Quarto-webbplatser som samlar flera relaterade `.qmd`-dokument under en gemensam startsida med sökbar listning. Första exemplet är `dokumentation`-repot, publicerat på `https://samhallsanalys.ltdalarna.se/dokumentation/`.
-
-## Hur skiljer sig detta från Shinyappar och webbrapporter?
-
-Det är lätt att tro att en dokumentationsportal bara är "en webbrapport med flera sidor", men arkitekturen skiljer sig på några viktiga punkter:
-
-| | Shinyapp | Webbrapport | Dokumentationsportal |
-|---|---|---|---|
-| **Innehåll** | Interaktiv R-applikation | En (1) statisk HTML-fil | Flera `.qmd`-filer, listade automatiskt |
-| **Var renderas källan?** | Körs live på servern | Lokalt, av författaren, före push | **På servern**, vid varje deploy |
-| **Repo-modell** | Ett repo per app | Källa i eget repo + separat publiceringsregister (*samhallsanalys-rapporter*) | Ett självständigt repo — källa och publicering är samma repo |
-| **Publiceras med** | `shinyapp_publicera()` | `webbrapport_publicera()`, som kopierar en redan renderad HTML-fil till *samhallsanalys-rapporter* | Vanlig `git push` till `main` — GitHub Actions renderar och publicerar automatiskt |
-| **Ny sida** | — | Ny rapport = nytt repo + registrering i *samhallsanalys-rapporter* | Ny sida = ny `.qmd`-fil i repot, dyker upp automatiskt i listningen |
-
-Den mest grundläggande skillnaden mot webbrapporter är **var renderingen sker**. `webbrapport_publicera()` förutsätter att man redan har en färdigrenderad, fristående HTML-fil (`self-contained: true`) som funktionen bara kopierar och publicerar — själva `quarto render`/`rmarkdown::render()` har redan körts lokalt, av författaren, innan något skickas iväg. En dokumentationsportal vänder på det: man pushar bara `.qmd`-källfilerna, och **GitHub Actions-runnern på servern kör `quarto render`** som en del av deploy-processen. Det gör att servern måste ha Quarto, R, och alla R-paket som förekommer i dokumentationens kodexempel installerade — ett beroende webbrapport-flödet aldrig har, eftersom där levereras bara färdig HTML.
-
-Den andra stora skillnaden är **listningen**. Webbrapporter och Shinyappar registreras var för sig (ett repo per rapport/app, med manuell registrering i respektive publiceringsregister). En dokumentationsportal har istället en `index.qmd` med en Quarto `listing`, som automatiskt skannar repots `.qmd`-filer vid varje rendering — lägger man till en ny fil dyker den upp på startsidan vid nästa push, ingen manuell registrering någonstans.
-
-## Skapa en ny dokumentationsportal
-
-```r
-webbsida_med_portal_skapa_med_github_repo(
-  github_repo     = "dokumentation",
-  server          = "intern",                                # "publik" eller "intern"
-  titel           = "Dokumentation – Samhällsanalys",
-  beskrivning     = "Teknisk dokumentation för Samhällsanalys, Region Dalarna",
-  behorighet_team = "samhallsanalys"                          # NULL om inget team ska ges behörighet
-)
-```
-
-Funktionen:
-
-1. Skapar ett nytt (som standard privat) repo i Region-Dalarna-orgen.
-2. **Ger angivet team push-behörighet** på det nya repot (om `behorighet_team` inte är `NULL`), via `PUT /orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}` med `permission = "push"` (motsvarar `Write`-rollen i GitHub:s UI). Teamet måste redan finnas i organisationen för att detta ska fungera — annars loggas en varning men resten av funktionen fortsätter. `Write` räcker för att kunna committa, pusha och hantera pull requests, utan att ge full `Admin`-kontroll över repots inställningar; samma mönster som `skapa_webbrapport_github()` redan använder för webbrapporter.
-3. Klonar ner det lokalt till `c:/gh/<github_repo>/` och säkerställer att branchen heter `main`.
-4. Hämtar mallfiler från `Region-Dalarna/depot` (se nedan) och fyller i repo-specifika värden (`titel`, `beskrivning`, `runner_label`, `github_repo`).
-5. Hämtar delad identitet (`regiondalarna_ruf.css`, `logo_liggande_fri_vit.png`) samt portal-specifik CSS från depot.
-6. Committar och pushar grundstrukturen till `main`, vilket triggar första deployen automatiskt.
-
-Efter det lägger man bara till nya `.qmd`-filer i repo-roten och pushar — ingen ytterligare registrering behövs.
-
-## Lägga till en ny sida i en dokumentationsportal
-
-Att skapa en ny `.qmd`-sida för hand fungerar förstås, men `dokumentation_sida_skapa()` ger ett konsekvent skelett och en tydlig kontroll av filnamnet innan något skapas:
-
-```r
-dokumentation_sida_skapa(
-  titel           = "Arbetssätt med DBI",
-  beskrivning     = "Kort beskrivning som visas i listan på startsidan",
-  filnamn         = "arbetssatt_med_dbi",     # obligatorisk, se filnamnsregler nedan
-  undertitel      = NULL,                     # valfri, visas på sidan men inte i tabellen
-  repo            = "dokumentation",          # default, kan pekas mot annat webbsida-med-portal-repo
-  lokal_root      = "c:/gh/",
-  oppna_i_rstudio = TRUE,
-  commit_och_push = FALSE
-)
-```
-
-Funktionen:
-
-1. **Validerar filnamnet strikt** innan något skapas eller ändras: inga mellanslag, inga versaler, inga svenska tecken (å/ä/ö) tillåts. Om filnamnet bryter mot detta stoppas funktionen direkt med ett tydligt felmeddelande och ett föreslaget, korrigerat filnamn — funktionen ändrar aldrig filnamnet automatiskt, det är alltid ett medvetet val av den som skapar sidan.
-2. **Kontrollerar att `repo` redan finns klonat lokalt** under `c:/gh/<repo>/`. Om mappen saknas stoppas funktionen med ett tydligt felmeddelande — den klonar inget automatiskt, eftersom repo-skapande hör hemma i `webbsida_med_portal_skapa_med_github_repo()`, inte här.
-3. **Kontrollerar att filen inte redan finns**, för att undvika att råka skriva över en befintlig sida.
-4. **Skapar filen** med ett minimalt, konsekvent skelett:
-   ```yaml
-   ---
-   title: "<titel>"
-   subtitle: "<undertitel, eller tom sträng om ej angiven>"
-   listing-description: "<beskrivning>"
-   ---
-
-   ## Inledning
-
-   ## Struktur
-
-   ## Sammanfattning
-   ```
-   `subtitle` skrivs alltid ut som ett eget fält, med tomt värde (`""`) om `undertitel` inte angetts — för att alla `.qmd`-filer ska ha ett konsekvent YAML-format, oavsett om undertiteln fylls i vid skapandet eller läggs till senare. Se [Om `title` vs `subtitle` vs `listing-description`](#mallar-i-depot) för varför de tre fälten hålls isär, och varför fältet heter `listing-description` snarare än Quartos inbyggda `description`. Notera också att skelettet medvetet **saknar** ett `date:`-fält — det sätts automatiskt av deploy-pipelinen utifrån filens git-historik (se [Deploy-pipeline](#deploy-pipeline)) — och ingen egen `execute`-konfiguration, eftersom den redan ärvs från `_quarto.yml` på projektnivå.
-5. **Öppnar filen i RStudio** (om `oppna_i_rstudio = TRUE`) så man kan börja skriva direkt.
-6. **Committar och pushar valfritt** — om `commit_och_push = TRUE` anropas `github_commit_push()` direkt. Annars (default) lämnas filen som en väntande lokal ändring, och funktionen skriver ut en påminnelse om att köra `github_commit_push("<repo>")` när sidan är klar — sidan syns inte på portalen förrän det gjorts.
-
-## Mallar i depot
-
-Portal-strukturen hålls som mallar i `Region-Dalarna/depot`, under `mallar/webbsida_portal/`, och hämtas via `depot_hamta_fran()` / `depot_skriv_mall_fran()` (se *func_API.R*) snarare än `raw.githubusercontent.com` rakt av — samma Fastly-cache-problematik som motiverade `source_utan_cache()` gäller här också.
-
-```
-depot/
-└── mallar/
-    └── webbsida_portal/
-        ├── _quarto.yml.tmpl
-        ├── index.qmd.tmpl
-        ├── deploy.yml.tmpl
-        ├── README.md.tmpl
-        └── portal_overrides.css
-```
-
-`_quarto.yml.tmpl` sätter bland annat `execute: eval: false` som standard i hela projektet — dokumentationsfiler ska **visa** kodexempel, inte köra dem på servern. Utan detta riskerar filer som gör riktiga API-anrop (t.ex. mot SCB:s statistikdatabas) att få deployen att fela, eftersom servern kan sakna nätverksåtkomst eller autentisering mot den externa tjänsten. Enskilda chunkar kan sätta `#| eval: true` som override där man medvetet vill köra kod (t.ex. en `setup`-chunk som bara laddar hjälpfunktioner via `source()`).
-
-**Viktigt att känna till:** eftersom `eval: false` gäller *alla* chunkar i *alla* `.qmd`-filer om inget annat anges, blir gamla `setup`-chunkar som skrevs innan detta upplägg fanns (typiskt `` ```{r setup, include=FALSE} `` med `knitr::opts_chunk$set(...)`, ibland följt av ett `source(...)`-anrop) helt **overksamma** — de körs aldrig, oavsett vad som står i dem. Det gäller även om chunken själv råkar innehålla `eval = FALSE` i sitt eget `opts_chunk$set()`-anrop; den satsen körs ju heller aldrig, av samma skäl. Sådana chunkar är därför säkra att ta bort helt om de bara sätter chunk-optioner eller källar in hjälpfunktioner som inget annat i dokumentet faktiskt anropar (vilket är det vanliga i rena dokumentationsfiler, där koden bara visas som exempel).
-
-Om man **verkligen** vill att en chunk ska köras på riktigt vid rendering (t.ex. för att generera en tabell eller ett diagram live, eller för att faktiskt ladda in funktioner som resten av dokumentet anropar), måste den ha ett eget, explicit `eval: true` som bryter sig loss från det globala värdet:
-
-```r
-#| label: setup
-#| eval: true
-#| include: false
-source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
-```
-
-Utan `#| eval: true` uteblir `source()`-anropet tyst — inget felmeddelande, koden bara körs aldrig, vilket annars är lätt att missa vid en snabb granskning av filen.
-
-`index.qmd.tmpl` innehåller själva listningen:
-
-```yaml
-listing:
-  contents: "*.qmd"
-  type: table
-  fields: [title, listing-description, date]
-  field-display-names:
-    title: "Titel"
-    listing-description: "Beskrivning"
-    date: "Datum"
-  sort: ["date desc", "title"]
-  filter-ui: true
-  max-description-length: 100000
-```
-
-Notera att `index.qmd` **inte** behöver exkludera sig själv ur listan (`exclude`) — Quarto exkluderar automatiskt den sida som innehåller `listing`-definitionen ur sin egen lista. Ett tidigt försök att göra detta explicit med `exclude:` gav bara valideringsfel i olika former beroende på syntax; lösningen var att ta bort `exclude` helt.
-
-`sort: ["date desc", "title"]` sorterar nyast-först, med titel som tie-breaker för sidor med samma datum (vanligt eftersom flera sidor ofta får samma datum den dag ett helt nytt portal-repo skapas — se datumlogiken nedan).
-
-`max-description-length: 100000` är satt högt medvetet, för att i praktiken aldrig klippa av beskrivningstexten på YAML-nivå. Se nästa stycke för varför.
-
-**Om `title` vs `subtitle` vs `listing-description`:** varje `.qmd`-fil bör hålla isär tre separata textfält, som alla har olika syfte:
-
-- **`title`** — kort, syns i tabellens klickbara titel-kolumn *och* som sidans egen stora rubrik *och* i webbläsarens flikrubrik. Quarto gör bara `title` klickbart i listningen (inget annat fält, t.ex. ett eget `title_table`, blir klickbart utan en egen anpassad EJS-mall — vilket bedömdes vara mer skört att förvalta än det är värt). Håll därför `title` kort och lämna en mer beskrivande rubrik till brödtexten om det behövs (`# Rubrik` som första raden i innehållet).
-- **`subtitle`** — visas på själva sidan, direkt under `title`, men tas **inte** med i listningens `fields:` och syns alltså aldrig i tabellen. Skrivs alltid ut som ett fält i skelettet från `dokumentation_sida_skapa()` (tomt `""` om ingen undertitel angetts), för ett konsekvent YAML-format mellan filer.
-- **`listing-description`** — en **medvetet skriven, egen sammanfattning** för listningens tabellrad. Det här fältet heter medvetet **inte** `description` — Quartos inbyggda `description:`-nyckel renderas automatiskt som en ingress-text direkt på sidan (under `title`/`subtitle` i title-blocket), vilket dubblerar text mellan tabellraden och sidan om samma fält används för båda. Genom att döpa fältet till `listing-description` istället (ett namn Quarto inte tolkar som något särskilt) renderas det aldrig på själva sidan — bara `listing:` i `index.qmd` läser det, via `fields: [title, listing-description, date]`. `listing-description` är av samma skäl en obligatorisk parameter i `dokumentation_sida_skapa()`, och skrivs alltid separat från och kortare än sidans faktiska inledningstext.
-
-### Sökfunktionen: fritextsök över hela portalen, inte bara filtret
-
-Portalen har egentligen **två separata sökmekanismer**, värda att skilja på:
-
-- **Filtret ovanför tabellen på `index.qmd`** (`filter-ui: true`) söker bara i det som redan visas i listningen — titel, beskrivning, datum. Ytligt, men snabbt för att hitta rätt *dokument* bland flera.
-- **Sökikonen i navbaren** (`search: true` i `_quarto.yml`, sätts på projektnivå) bygger ett fullständigt textindex (`search.json`) över **allt innehåll på alla sidor**, inte bara det som syns i listningen. Den kan hitta en specifik term mitt inne i en lång fil som `pxweb2.qmd` även om ordet aldrig nämns i titel eller beskrivning, och fungerar från vilken sida som helst i portalen — inte bara från startsidan.
-
-De kompletterar alltså varandra: filtret för att hitta rätt dokument, sökikonen för att hitta ett specifikt stycke text var det än ligger. För en teknisk dokumentationsportal (där man ofta letar efter en specifik funktion, felkod eller kommandorad snarare än ett helt dokument) är den fullständiga sökningen ofta mer värdefull än filtret i praktiken — den bör därför hållas påslagen (`search: true`) som standard i `_quarto.yml.tmpl`.
-
-### Utseende: avklippt beskrivningstext och dold navbar-länk
-
-Två CSS/JS-lösningar i `portal_overrides.css` och `index.qmd.tmpl` är värda att känna till om man bygger vidare på portal-mallen:
-
-**Avklippt tabelltext, med fullständig text vid hover.** `-webkit-line-clamp` fungerar inte tillförlitligt när den läggs direkt på ett `<td>`, eftersom tabellcellens egna layoutmotor (`display: table-cell`) konkurrerar med `-webkit-box` som line-clamp kräver. Lösningen är att låta ett litet script linda in cellens text i ett eget `<span class="beskrivning-clamp">` vid sidladdning, och lägga line-clamp på det spannet istället:
-
-```html
-```{=html}
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-  document.querySelectorAll(".quarto-listing-table td:nth-child(2)").forEach(function(cell) {
-    var fullText = cell.textContent.trim();
-    cell.title = fullText;
-    cell.innerHTML = "";
-    var span = document.createElement("span");
-    span.className = "beskrivning-clamp";
-    span.textContent = fullText;
-    cell.appendChild(span);
-  });
-});
-</script>
-```
-```
-
-```css
-.beskrivning-clamp {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-```
-
-Samma script sätter också `cell.title` till den fulla, otrimmade texten — det ger en webbläsarnativ tooltip med hela beskrivningen vid hover, vilket är anledningen till att `max-description-length` sattes högt (annars finns aldrig den fulla texten i DOM:en att visa).
-
-**Dold länk på logga/text i navbaren.** `navbar-brand` (loggan + den understående "Samhällsanalys"-texten, se nedan) renderas av Quarto som ett klickbart `<a href="index.html">`, men eftersom portalen redan har en explicit "← Tillbaka"-länk ansågs dubbel navigering till samma mål förvirrande. Lösning i `portal_overrides.css`:
-
-```css
-.navbar-brand {
-  pointer-events: none;
-  cursor: default;
-}
-```
-
-Detta neutraliserar klick/hover på elementet utan att ta bort själva loggan, och utan att behöva bygga om navbaren med egen HTML.
-
-### Navbar: logga och "Samhällsanalys"-text
-
-`_quarto.yml.tmpl` sätter en logga i navbaren (`navbar: logo: logo_liggande_fri_vit.png`, hämtad från depot). Texten "Samhällsanalys" under loggan (som i Shinyapparnas header) läggs till med en ren CSS `::after`-pseudo-element i `portal_overrides.css`, med exakt samma typografiska värden som `.rd-header__right span` i `regiondalarna_ruf.css`:
-
-```css
-.navbar-brand::after {
-  content: "Samhällsanalys";
-  font-size: 0.5rem;
-  font-weight: 400;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
-  color: #ffffff;
-  opacity: 0.65;
-  white-space: nowrap;
-}
-```
-
-`letter-spacing` och `font-size` justerades ner något från de första förslagen, eftersom en smalare navbar än Shinyapparnas header annars gjorde den versala texten bredare än loggan ovanför.
-
-## Deploy-pipeline
-
-**Man behöver aldrig rendera en `.qmd`-fil lokalt för att publicera den.** Hela poängen med portal-arkitekturen (till skillnad från webbrapporter, se jämförelsen ovan) är att `quarto render` körs **av GitHub Actions-runnern på servern**, som en del av varje deploy — inte av författaren innan push. Man skriver `.qmd`-filen, sparar, och pushar källfilen; servern sköter renderingen och publiceringen automatiskt.
-
-Det är också anledningen till att `.gitignore` i varje portal-repo (satt av `webbsida_med_portal_skapa_med_github_repo()`) uttryckligen exkluderar renderade filer:
-
-```
-.quarto/
-_site/
-*.html
-*_files/
-```
-
-Om man råkar klicka **Render** i RStudio lokalt för att förhandsgranska hur en sida ser ut (fullt möjligt och ibland smidigt för att snabbt kolla formatering), skapas en `<filnamn>.html` och en `<filnamn>_files/`-mapp lokalt i repo-roten — men de ska **aldrig committas eller pushas**. Dels är de överflödiga (servern renderar om exakt samma innehåll vid varje deploy oavsett), dels riskerar de att bli inaktuella eller råka skugga det som faktiskt publiceras om de av misstag hamnar i `_site/`-trädet. `.gitignore`-reglerna ovan skyddar mot att det händer av misstag, men värt att känna till *varför* de finns där.
-
-`deploy.yml.tmpl` (och därmed varje portals `.github/workflows/deploy.yml`) kör, i tur och ordning:
-
-1. **`actions/checkout@v4`** med `fetch-depth: 0` (full historik krävs av datumsteget nedan).
-2. **Sätt datum från git-historik** — sätter `date:` i varje `.qmd`-fils YAML-header till filens senaste commit-datum (`git log -1 --format=%cs -- <fil>`), körs i arbetskatalogen på servern och committas aldrig tillbaka till repot. Detta ersatte ett tidigare försök med `date: last-modified`, som satte samma (fel) datum på alla sidor — `actions/checkout` sätter alla filers mtime till checkout-tidpunkten, inte deras faktiska senaste ändring.
-3. **Installera R-paket från .qmd-filer** (`continue-on-error: true`) — scannar automatiskt alla `.qmd`-filer efter `library()`/`require()`-anrop och installerar saknade paket. Se eget avsnitt nedan.
-4. **`quarto render`** — sker helt på servern, se ovan.
-5. **Publicera** — `rapport_deploy_repo.sh "$(pwd)/_site" "<repo-namn>"`.
-
-### Automatisk paketinstallation: `installera_qmd_paket.sh`
-
-Till skillnad från Shinyappar (som har en förvaltad `renv.lock` per app) har dokumentationsfiler inget formellt paketberoende-register — de skrivs löpande av flera personer och kan referera till vilket paket som helst i ett kodexempel. `/usr/local/bin/installera_qmd_paket.sh` (finns på båda servrarna) löser det genom att scanna varje `.qmd`-fil efter `library()`/`require()`, men **bara inuti riktiga körbara chunkar** (` ```{r ...} `) — kodexempel i vanliga icke-körbara block (` ``` r `, utan klamrar) ignoreras, eftersom knitr aldrig exekverar dem oavsett `eval`-inställning.
-
-Saknade paket installeras ett i taget; paket som misslyckas (typiskt på grund av saknade systembibliotek, t.ex. `rJava`/Java eller `sf`/GDAL) loggas tydligt men stoppar inte installationen av övriga paket. `continue-on-error: true` på workflow-steget gör att `quarto render` körs även om ett enskilt paket inte gick att installera — felet syns då istället som ett tydligare renderingsfel i nästa steg, snarare än att blockera hela deployen i onödan.
-
-Systemberoenden (Java, `libgdal-dev`, `libpq-dev` med flera) måste fortfarande installeras manuellt på servern med `apt`, precis som för renv-cachen på Shiny-servrarna — `install.packages()` kan inte lösa den typen av beroenden själv.
-
-### `rapport_deploy_repo.sh` — inte samma script som `rapport_deploy.sh`
-
-Dokumentationsportaler (och andra fristående, självdeployande repon) använder **inte** `rapport_deploy.sh` (se [Statisk webbrapport-hosting](#statisk-hosting)), utan ett separat script: `/usr/local/bin/rapport_deploy_repo.sh <SOURCE_DIR> <REPO_NAMN>`, som finns på båda servrarna.
-
-Skälet är en viktig skillnad i vad `SOURCE_DIR` förväntas innehålla:
-
-* `rapport_deploy.sh` körs av *samhallsanalys-rapporter*-repots workflow och förutsätter att `SOURCE_DIR` innehåller **samtliga** publicerade rapporter samtidigt (hela `public/`-mappen) — den gör `rsync -a --delete` av hela `/srv/rapporter/`, vilket bara är säkert eftersom varje deploy skickar med det fullständiga, ackumulerade trädet.
-* Ett fristående portal-repo har bara **sin egen** `_site/`-mapp som `SOURCE_DIR` — inga andra rapporter. Skulle man av misstag köra `rapport_deploy.sh` med en sådan mapp skulle `--delete` radera *alla andra rapporter* i `/srv/rapporter/`, eftersom de saknas i den portalens `SOURCE_DIR`. Detta hände faktiskt vid första testet av dokumentationsportalen och upptäcktes direkt.
-
-`rapport_deploy_repo.sh` begränsar istället `--delete` till repots egen undermapp (`/srv/rapporter/<REPO_NAMN>/`), aldrig hela `/srv/rapporter/`:
-
-```bash
-rapport_deploy_repo.sh <SOURCE_DIR> <REPO_NAMN>
-# rsync -a --delete <SOURCE_DIR>/ /srv/rapporter/<REPO_NAMN>/
-```
-
-Samma kollisionsskydd som `rapport_deploy.sh` finns kvar (en portal/rapport får inte krocka med en befintlig Shiny-app-katalog i `/srv/shiny-server/`).
-
-## Server-uppsättning
-
-Dokumentationsportaler återanvänder samma `/srv/rapporter/`-struktur, samma `rapport-deploy`-användare och samma nginx-konfiguration som webbrapporterna (se [Statisk webbrapport-hosting](#statisk-hosting)) — ingen ny katalogstruktur eller nytt ägarskap behövdes.
-
-Det som *behövde* sättas upp separat var en egen self-hosted runner på den interna servern, som en spegling av publika serverns tvådelade runner-modell (en runner för Shinyappar, en för statiskt innehåll):
-
-| Server | Runner (app-deploy) | Runner (rapport/portal-deploy) |
-|---|---|---|
-| Publik (wfalmitvs978) | `shiny-deploy-publik` | `rapport` |
-| Intern (RP0003) | `shiny-deploy-intern` | `rapport-intern` *(ny)* |
-
-Internservern hade tidigare bara en enda runner (kördes som `shiny-deploy`, användes för Shinyappar). En ny runner sattes upp specifikt för rapport/portal-deploys, körandes som **`rapport-deploy`** — samma separation av ansvar som redan fanns på publika servern, snarare än att låta `shiny-deploy` få rättigheter till `/srv/rapporter/` via sudoers (vilket hade suddat ut gränsen mellan app- och rapportdeploy).
-
-```bash
-# Som rapport-deploy på RP0003:
-mkdir -p ~/actions-runner && cd ~/actions-runner
-curl -O -L https://github.com/actions/runner/releases/download/<version>/actions-runner-linux-x64-<version>.tar.gz
-tar xzf actions-runner-linux-x64-<version>.tar.gz
-./config.sh --url https://github.com/Region-Dalarna --token <engångstoken> --labels rapport-intern
-
-# Som operationsadmin:
-cd /home/rapport-deploy/actions-runner
-sudo ./svc.sh install rapport-deploy
-sudo ./svc.sh start
-```
-
-Quarto (samma version som används lokalt i RStudio, t.ex. 1.7.32) samt `git` behövde installeras systemvitt på båda servrarna — det senare var inte tidigare installerat eftersom all git-hantering annars sker lokalt via `gert`/`git2r`, men behövs på servern av `installera_qmd_paket.sh`-relaterade skript (git-loggen används för att sätta datum, se ovan).
-
-```bash
-wget https://github.com/quarto-dev/quarto-cli/releases/download/v1.7.32/quarto-1.7.32-linux-amd64.deb
-sudo dpkg -i quarto-1.7.32-linux-amd64.deb
-sudo apt install -y git
-```
-
-### nginx: trailing-slash-fix
-
-Ett problem som bara syns för flersidiga Quarto-siter (till skillnad från en enda `index.html` med `self-contained: true`): om man besöker `/dokumentation` **utan** avslutande snedstreck serverar nginx ändå `index.html`-innehållet (via `try_files`), men webbläsarens adressfält behåller `/dokumentation`. Eftersom sidan har flera undersidor och relativa länkar/CSS-referenser (`docs/shiny.html`, `regiondalarna_ruf.css`) löser webbläsaren då dessa relativt fel bas-URL — allt bryts (CSS uteblir, länkar pekar fel).
-
-Lösningen var att byta `try_files $uri $uri/index.html ...` mot `try_files $uri $uri/ ...` i respektive `server`-block för `root /srv/rapporter;`. Med `$uri/` känner nginx av att `dokumentation` är en existerande **katalog** och skickar automatiskt en `301`-redirect till `.../dokumentation/` innan innehållet serveras — inga trasiga relativa referenser.
-
-På **internservern** (`shiny-intern-ssl`), som saknade en Shiny-fallback i samma block, räckte:
-```nginx
-location / {
-    try_files $uri $uri/ @trailing_slash;
-}
-location @trailing_slash {
-    return 301 $uri/;
-}
-```
-
-På **publika servern** (`shiny-ssl`), som redan hade en `@shiny`-fallback, räckte det att byta ut `$uri/index.html` mot `$uri/` i den befintliga regeln — inget extra `@trailing_slash`-block behövdes, eftersom nginx redirectar automatiskt när `$uri/` matchar en katalog:
-```nginx
-location / {
-    try_files $uri $uri/ @shiny;
-}
-```
-
-Detta är en engångsändring på servernivå (inte något som styrs per repo eller i mallarna), gjord i `/etc/nginx/sites-available/shiny-intern-ssl` respektive `/etc/nginx/sites-available/shiny-ssl`.
+Det som är gemensamt för **all** statisk hosting på servern (katalogstruktur under `/srv/rapporter/`, `rapport-deploy`-användaren, nginx-konfiguration och TLS) dokumenteras längre ner, under [Statisk webbrapport-hosting](#statisk-hosting) — det avsnittet behövs bara för den som sätter upp eller felsöker själva servern.
 
 # Installation och konfigurering av Shiny-server{#installation-konfigurering-shinyserver}
 
 :::{.callout-important}
 ## Detta avsnitt är bara för dem som hanterar själva Shiny-servern
 
-Om du *skapar eller reviderar* Shinyappar eller webbrapporter behöver du **inte** läsa det här avsnittet. Gå istället till [Shinyappar](#shinyappar) eller [Webbrapporter](#webbrapporter).
+Om du *skapar eller reviderar* Shinyappar behöver du **inte** läsa det här avsnittet — gå istället till [Shinyappar](#shinyappar). Ska du publicera en webbrapport eller dokumentationsportal, se den separata **[Publicering](publicering.html)**-dokumentationen.
 
 Resten av detta kapitel är teknisk dokumentation för dig som ska:
 
@@ -2122,7 +1705,7 @@ De två hasharna ska vara identiska. Skiljer de sig — använd inte nyckeln, n�
 
 Vi serverar statiska webbrapporter (HTML från RMarkdown/Quarto) från samma Shiny-server som Shinyapparna, men under en separat domän (`samhallsanalys.regiondalarna.se`). Apparna och rapporterna lever fredligt sida vid sida tack vare en `try_files`-fallback i nginx — rapporter under `/srv/rapporter/` har företräde, och allt som inte matchar en rapport faller igenom till `/srv/shiny-server/` som vanligt.
 
-Det här avsnittet beskriver hur infrastrukturen sattes upp första gången. Sätter du upp en ny Shiny-server och vill ha samma uppdelning så följer du stegen nedan. Är allting redan på plats behöver du bara hantera webbrapporterna via `webbrapport_publicera()`, se avsnittet [Webbrapporter](#webbrapporter).
+Det här avsnittet beskriver hur infrastrukturen sattes upp första gången. Sätter du upp en ny server och vill ha samma uppdelning så följer du stegen nedan. Är allting redan på plats hanteras webbrapporter och portaler via publiceringsflödena i den separata **[Publicering](publicering.html)**-dokumentationen — det här avsnittet behövs bara för själva serveruppsättningen.
 
 ### Översikt över komponenterna
 
@@ -2131,8 +1714,7 @@ Det här avsnittet beskriver hur infrastrukturen sattes upp första gången. Sä
 | `/srv/rapporter/` | Shiny-servern | Roten där alla statiska rapporter serveras från |
 | `rapport-deploy` | Linux-användare på Shiny-servern | Äger filerna under `/srv/rapporter/` |
 | `www-data` | Linux-grupp | Gruppen som nginx kör som — får läsrätt till rapportfilerna |
-| `/usr/local/bin/rapport_deploy.sh` | Shiny-servern | Bash-script som rsync:ar in nya rapporter och sätter rättigheter |
-| `samhallsanalys-rapporter` | GitHub-repo | Gemensamt repo för alla publicerade rapporter (en mapp per rapport under `public/`) |
+| `/usr/local/bin/rapport_deploy_repo.sh` | Shiny-servern | Bash-script som rsync:ar in EN rapport/portal till sin egen mapp och sätter rättigheter |
 | Self-hosted runner med label `rapport` | Shiny-servern | Kör GitHub Actions-deploys som användaren `rapport-deploy` |
 | nginx `try_files`-fallback | `/etc/nginx/sites-available/` | Sätter `/srv/rapporter/` före `/srv/shiny-server/` i routningen |
 
@@ -2159,24 +1741,25 @@ Setgid-biten (`2` i `2755`) gör att nya filer och underkataloger automatiskt ä
 
 ### Deploy-script på servern
 
-Skapa `/usr/local/bin/rapport_deploy.sh` som rsync:ar in nya rapporter, sätter rättigheter och kontrollerar att inga rapportnamn krockar med befintliga Shiny-appar:
+Skapa `/usr/local/bin/rapport_deploy_repo.sh` som rsync:ar in **en** rapport/portal till sin egen undermapp under `/srv/rapporter/`, sätter rättigheter och kontrollerar att namnet inte krockar med en befintlig Shiny-app:
 
 ```bash
-sudo nano /usr/local/bin/rapport_deploy.sh
-sudo chmod 755 /usr/local/bin/rapport_deploy.sh
-sudo chown root:root /usr/local/bin/rapport_deploy.sh
+sudo nano /usr/local/bin/rapport_deploy_repo.sh
+sudo chmod 755 /usr/local/bin/rapport_deploy_repo.sh
+sudo chown root:root /usr/local/bin/rapport_deploy_repo.sh
 ```
 
-Skriptet:
+Skriptet tar två argument (`<SOURCE_DIR>` = den renderade sajten/HTML-mappen, `<REPO_NAMN>` = målmappen under `/srv/rapporter/`) och:
 
-* Validerar att källkatalogen (`public/`) finns och inte är tom.
-* Kontrollerar att ingen rapportmapp under `public/` heter samma som en befintlig Shiny-app under `/srv/shiny-server/` — om så är fallet avbryts deployen med ett tydligt felmeddelande (annars hade nginx-fallbacken inte fungerat förutsägbart).
-* Kör `rsync -a --delete public/ /srv/rapporter/` så att `/srv/rapporter/` speglar exakt det som finns i repots `public/`-mapp.
-* Sätter ägarskap (`rapport-deploy:www-data`), rättigheter (`2755` på kataloger, `644` på filer).
+* Kontrollerar att `<REPO_NAMN>` inte krockar med en befintlig Shiny-app under `/srv/shiny-server/` — om så avbryts deployen med ett tydligt felmeddelande (annars hade nginx-fallbacken inte fungerat förutsägbart).
+* Kör `rsync -a --delete <SOURCE_DIR>/ /srv/rapporter/<REPO_NAMN>/` — scopat till **just den mappen**, så andra rapporter/portaler i `/srv/rapporter/` aldrig påverkas.
+* Sätter grupp (`www-data`) och rättigheter (`2755` på kataloger, `644` på filer).
+
+Det fullständiga skriptet, och hur det anropas från varje repos `deploy.yml`, dokumenteras i **[Publicering](publicering.html)** under förvaltningsavsnittet — här räcker det att veta att scriptet måste finnas på plats på servern.
 
 ### nginx-konfiguration
 
-I serverblocket för Shiny-servern lägger man till en `try_files`-direktiv så att statiska rapporter har företräde framför Shiny-server-proxyn. Principen: nginx letar först efter en matchande fil under `/srv/rapporter/`, och om ingen hittas faller det igenom till proxyn.
+I serverblocket för Shiny-servern lägger man till ett `try_files`-direktiv så att statiska rapporter har företräde framför Shiny-server-proxyn. Principen: nginx letar först efter en matchande fil under `/srv/rapporter/`, och om ingen hittas faller det igenom till proxyn.
 
 Exempel (förenklat):
 
@@ -2188,7 +1771,7 @@ server {
     # Statiska webbrapporter har företräde
     location / {
         root /srv/rapporter;
-        try_files $uri $uri/index.html @shiny;
+        try_files $uri $uri/ @shiny;
     }
 
     # Allt som inte matchar en statisk rapport går vidare till Shiny-servern
@@ -2198,6 +1781,8 @@ server {
     }
 }
 ```
+
+Notera `try_files $uri $uri/ @shiny` (med `$uri/`, inte `$uri/index.html`) — det får nginx att automatiskt `301`-redirecta `/dokumentation` till `/dokumentation/` för flersidiga portaler, så relativa CSS/länk-referenser löses mot rätt bas-URL. Detaljerna kring den fixen dokumenteras i **[Publicering](publicering.html)**.
 
 Reload:a nginx efter ändringarna:
 
@@ -2210,7 +1795,7 @@ Testa både en känd rapport-url och en känd Shiny-app-url för att säkerstäl
 
 ### Self-hosted runner för rapport-deploys
 
-GitHub Actions-deployen kör som användaren `rapport-deploy` via en egen self-hosted runner med labeln `rapport`. Den lever sida vid sida med Shiny-app-runnern (`shiny-deploy`) på samma server — de stör inte varandra eftersom de kör som olika användare och har olika labels. Workflowen i *samhallsanalys-rapporter* har `runs-on: [ self-hosted, rapport ]` och plockas alltså bara upp av rapport-runnern.
+GitHub Actions-deployen kör som användaren `rapport-deploy` via en egen self-hosted runner med labeln `rapport` (och `rapport-intern` på den interna servern). Den lever sida vid sida med Shiny-app-runnern (`shiny-deploy`) på samma server — de stör inte varandra eftersom de kör som olika användare och har olika labels. Varje webbrapport- och portal-repo har en `deploy.yml` med `runs-on: [ self-hosted, rapport ]` (eller `rapport-intern`) och plockas alltså bara upp av rätt rapport-runner.
 
 Som `rapport-deploy`:
 
@@ -2238,27 +1823,9 @@ sudo ./svc.sh status
 
 Efter detta dyker en ny runner upp (typiskt `<servernamn>-rapport`) som aktiv under organisations-inställningarna på GitHub, och alla jobb med `runs-on: [ self-hosted, rapport ]` plockas upp av den.
 
-### Skapa GitHub-repot samhallsanalys-rapporter
+### Webbrapport- och portal-repon deployar sig själva
 
-Som administratör för Region-Dalarna-organisationen på GitHub:
-
-1. Skapa ett nytt privat repo under organisationen, döpt till `samhallsanalys-rapporter`.
-2. Klona det lokalt till `c:/gh/samhallsanalys-rapporter/`.
-3. Lägg in initial-strukturen (workflow, hooks, gitattributes, public/-mapp, README) — strukturen är dokumenterad i repots egen `README.md`.
-4. Skapa både `master` och `publicera` som brancher och pusha båda:
-
-```bash
-git checkout -b master
-git add .
-git commit -m "Initial: workflow, hooks, struktur"
-git push -u origin master
-git checkout -b publicera
-git push -u origin publicera
-```
-
-5. Sätt `master` som default-branch under repots Settings → Branches på GitHub.
-
-Eftersom workflowen i `.github/workflows/deploy.yml` triggas av push till `publicera` så är den första push:en till `publicera` också det första riktiga testet av hela kedjan (runner → deploy-skript → nginx).
+Till skillnad från ett tidigare upplägg (där alla rapporter samlades i ett gemensamt repo) publicerar sig varje webbrapport och dokumentationsportal numera **från sitt eget repo**. Det finns alltså inget centralt publiceringsregister att sätta upp på servern — varje repo har sin egen `deploy.yml` som pushas till en `publicera-publik`/`publicera-intern`-branch (webbrapporter) eller `main` (portaler), vilket triggar rapport-runnern som kör `rapport_deploy_repo.sh` och lägger resultatet i sin egen mapp under `/srv/rapporter/<reponamn>/`. Själva publiceringsflödena och den detaljerade deploy-pipelinen dokumenteras i **[Publicering](publicering.html)**.
 
 ### DNS för samhallsanalys.regiondalarna.se
 
@@ -2275,6 +1842,6 @@ För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalar
 * Shiny-koden ligger direkt i repo-roten (ingen `app/`-undermapp), med renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) bredvid. Se [renv-miljö på Shiny-servern](#renv-shinyserver).
 * En app tas bort med `shinyapp_avpublicera("appnamn")` och flyttas mellan servrarna med `shinyapp_flytta("appnamn", till = ...)`.
 * Rättigheter på app-katalogerna under `/srv/shiny-server/` följer principen *en användare skriver, en grupp läser* — `shiny-deploy:shiny` med läge `2775`/`664`. Deploy-skriptet `/usr/local/bin/shiny_deploy.sh` säkerställer rätt grupp och läge vid varje körning, vilket förutsätter att `shiny-deploy` är medlem i gruppen `shiny`. Se [Rättigheter på app-katalogerna i `/srv/shiny-server/`](#rattigheter-app-kataloger).
-* Statiska webbrapporter (RMarkdown/Quarto) publiceras med `webbrapport_publicera("rapportnamn")` och blir åtkomliga på `https://samhallsanalys.regiondalarna.se/<rapportnamn>/`. **Förutsättning:** `.qmd`/`.Rmd`-filen måste vara klar, commit:ad och pushad i rapportens egna repo *innan* funktionen körs — `webbrapport_publicera()` rör inte källrepot, den kopierar bara den renderade HTML-filen till *samhallsanalys-rapporter*-repot. Se avsnittet [Webbrapporter](#webbrapporter).
+* Statiska webbrapporter (RMarkdown/Quarto) och dokumentationsportaler publiceras från sina egna repon och blir åtkomliga under `/srv/rapporter/`. Publiceringsflödena beskrivs i den separata **[Publicering](publicering.html)**-dokumentationen; själva serveruppsättningen för statisk hosting beskrivs i [Statisk webbrapport-hosting](#statisk-hosting) ovan.
 * Webbrapporterna serveras från `/srv/rapporter/` på samma Shiny-server som Shinyapparna via en `try_files`-fallback i nginx. Infrastrukturen sätts upp en gång per server enligt avsnittet [Statisk webbrapport-hosting](#statisk-hosting).
 * **TLS-certifikatet** för Shiny-servern hanteras manuellt och Samhällsanalys ansvarar för att hålla det ajour. Det är ett wildcard-cert som IT förnyar centralt ca en gång per år; vi byter ut `fullchain.pem` på servern och startar om nginx. Sätt en kalenderpåminnelse minst 30 dagar innan `notAfter`. Se [Certifikathantering (TLS/SSL)](#certifikathantering).
