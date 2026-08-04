@@ -1,0 +1,346 @@
+---
+title: "Webbskrapning med chromote och selenider"
+subtitle: "Så hämtar vi data från sidor där rvest inte räcker till — utan att installera Python eller andra externa program"
+listing-description: "Dokumentation för att skrapa dynamiska webbsidor (knappar, filter, nedladdningar) direkt från R med chromote och selenider. Beskriver hjälpfunktionerna i func_webbskrapning.R, arbetsflödet för att bygga ett nytt skrapskript genom att stegvis inspektera sidans kontroller, samt vanliga fallgropar."
+author: "Samhällsanalys, Region Dalarna"
+date: last-modified
+lang: sv
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+---
+
+# Inledning
+
+En del sidor går inte att skrapa med `rvest` ensamt, eftersom datan bara dyker upp efter att man klickat i filter, bockat i kryssrutor eller tryckt på en exportknapp som triggar en nedladdning. Då behöver vi en riktig webbläsare som kan styras programmatiskt.
+
+Det vanliga valet i den världen är Playwright, men Playwright kräver Python och att Playwright laddar ner egna webbläsarbinärer. På våra Windows-maskiner och VM:ar visade det sig dessutom att `processx`s interna hjälpprocess (`supervisor.exe`) blockeras av gruppolicy (AppLocker), vilket ställer till det för flera R-paket som bygger på den.
+
+Lösningen vi landade i är **chromote + selenider**, som bara kräver R-paketen och den Edge som redan finns installerad på maskinen — ingen Python, inga extra binärer, inga policyproblem (med rätt uppsättning, se [Vanliga fallgropar](#fallgropar)).
+
+## Vem är detta för — och var ska jag börja läsa?
+
+:::{.callout-tip}
+## 🧑‍💻 Du ska skriva ett nytt skrapskript mot en sida
+Läs **[Bygga ett nytt skrapskript steg för steg](#bygga-skript)**. Det är den centrala arbetsmetoden: öppna sidan manuellt, inspektera dess kontroller, och skriv skriptet mot det du faktiskt ser — istället för att gissa selektorer.
+:::
+
+:::{.callout-warning}
+## 🛠️ Du vill slå upp vad en viss funktion gör
+Läs **[Referens: funktionerna i func_webbskrapning.R](#referens)**.
+:::
+
+Alla funktioner som nämns finns i `func_webbskrapning.R` i vårt `funktioner`-repo:
+
+```r
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_webbskrapning.R")
+```
+
+# Snabbstart
+
+```r
+library(selenider)
+source("func_webbskrapning.R")
+
+with_skrapsession({
+  selenider::open_url("https://exempel.se/statistik", session = skrap$session)
+
+  find_element(skrap$session, "#region") |> elem_select(value = "20")
+
+  fil <- hamta_nedladdning(
+    skrap,
+    trigger = function() {
+      find_element(skrap$session, "#exportera") |> elem_click()
+    },
+    nedladdningsmapp = "C:/temp/nedladdningar",
+    monster = "\\.xlsx$"
+  )
+
+  fil
+})
+```
+
+`with_skrapsession()` startar Edge, kopplar chromote/selenider, kör din kod (variabeln `skrap` finns tillgänglig inuti blocket) och städar bort allt — även om koden kastar ett fel.
+
+# Komma igång på en ny maskin
+
+Kör diagnosfunktionen först — den testar förutsättningarna i tur och ordning och pekar ut exakt var det brister, istället för att man fastnar i kryptiska felmeddelanden:
+
+```r
+source("func_webbskrapning.R")
+testa_skrapmiljo()
+```
+
+Den kontrollerar att R-paketen är installerade, att Edge hittas, att Edge kan startas med en debug-port (fångar AppLocker-blockering), att porten svarar på `127.0.0.1` (fångar loopback-/brandväggsproblem), och att chromote kan ansluta hela vägen. Går allt igenom är maskinen redo. Brister något får du ett konkret besked om vad — och för de vanligaste fallen (Edge på annan sökväg, saknade paket) även hur det åtgärdas.
+
+:::{.callout-note}
+## Ingen RStudio-konfiguration krävs
+Lösningen hänger inte på några lokala RStudio-inställningar, `.Rprofile`-tricks eller manuellt satta miljövariabler — allt ligger i koden plus den Edge som redan finns på maskinen. `starta_skrapsession()` söker dessutom upp Edge **eller** Chrome automatiskt via `hitta_webblasare()` (kända sökvägar + registret), så på de flesta maskiner behöver ingenting anges alls. Bara om webbläsaren ligger på en ovanlig plats behöver `SKRAP_EDGE_PATH` sättas i `.Renviron`.
+:::
+
+# Grundprinciper
+
+- **Ingen extern installation.** `starta_skrapsession()` startar den Edge som redan ligger på maskinen (`C:/Program Files (x86)/Microsoft/Edge/...`) headless, med en egen fjärrfelsökningsport, och kopplar chromote till den via `127.0.0.1`. selenider läggs sedan ovanpå chromote för ett bekvämt, Playwright-likt API.
+- **Automatisk väntan.** selenider väntar automatiskt in att element existerar och är klickbara innan en åtgärd utförs — man slipper `Sys.sleep()`-gissningar. Vid explicit väntan (t.ex. efter en postback) används `elem_expect(is_visible)`.
+- **Nedladdningar.** Chrome/Edge har inget `expect_download()` som Playwright, så `hamta_nedladdning()` löser det genom att sätta nedladdningsmappen via Chrome DevTools-protokollet och sedan polla efter att en ny, stabil fil dyker upp.
+- **Städning.** Varje session startar en egen Edge-process med en egen temporär profil. `stang_skrapsession()` (eller `with_skrapsession()`s automatiska städning) avslutar bara den processen — aldrig andra Edge-fönster som råkar vara öppna på maskinen.
+
+# Bygga ett nytt skrapskript steg för steg {#bygga-skript}
+
+Det här är den metod som visat sig fungera bäst: **gissa inte selektorer i förväg** — öppna sidan i en levande session, inspektera vad som faktiskt finns, och skriv koden mot det.
+
+## Steg 1 — Starta en synlig session
+
+```r
+library(selenider)
+source("func_webbskrapning.R")
+
+skrap <- starta_skrapsession(headless = FALSE)
+selenider::open_url("https://exempel.se/statistik", session = skrap$session)
+```
+
+Med `headless = FALSE` ser du webbläsarfönstret medan du jobbar. Låt `skrap` ligga kvar i din globala miljö — du kommer köra rader mot den en och en, inte som ett färdigt skript.
+
+## Steg 2 — Kartlägg sidans kontroller
+
+```r
+visa_kontroller(skrap)
+```
+
+Det ger en snabb översikt: alla `<select>`-listor med sina `id`, om de är flerval, och deras alternativ — samt alla klickbara element som har ett `id`. Vill du ha datan strukturerad istället för utskriven, använd:
+
+```r
+kontroller <- inspektera_kontroller(skrap)
+kontroller$selects     # en rad per <option>: select_id, multiple, value, text, selected
+kontroller$klickbara   # id, tag, text
+kontroller$inmatning   # textfält, kryssrutor, radioknappar
+```
+
+:::{.callout-note}
+## Element utan `id` syns inte i `visa_kontroller()`
+Många länkar/kryssrutor på äldre sidor saknar `id` helt (de listas ändå i `inspektera_kontroller()$klickbara`, bara med tomt `id`). För sådana element klickar du via synlig text istället — se Steg 4.
+:::
+
+:::{.callout-tip}
+## Mät innan du optimerar: `elem_click()` kan vara långsamt av två olika skäl
+Om ett `elem_click()` tar ovanligt lång tid (sekunder till minuter) kan det bero antingen på seleniders egen väntelogik (upprepade kontroller av synlighet/klickbarhet), eller på att sidan/servern faktiskt är långsam just där (en tung AJAX-postback, en synkron JavaScript-hanterare). De kräver olika åtgärder, så gissa inte — mät:
+
+```r
+system.time(klicka_via_id(skrap, "#något-id"))
+```
+
+Går JS-klicket snabbt (millisekunder) var det seleniders overhead — byt permanent till `klicka_via_id()`/`klicka_via_text()` för den raden. Är JS-klicket också långsamt är det sidans eget beteende, och det enda som hjälper är att höja `timeout` och vänta in resultatet med `elem_expect(is_visible)`.
+:::
+
+Behöver du gräva djupare — t.ex. se hela HTML-strukturen kring ett element, eller köra egen JavaScript — finns `kor_js()`:
+
+```r
+kor_js(skrap, "document.getElementById('AR').outerHTML")
+```
+
+## Steg 3 — Testa selektorer interaktivt
+
+Bygg upp anropen ett i taget och kör dem rad för rad, så du ser resultatet direkt:
+
+```r
+# CSS-selektor via id (vanligast och att föredra när elementet har ett)
+find_element(skrap$session, "#AR") |> elem_text()
+
+# Kolla att rätt antal alternativ hittas
+find_element(skrap$session, "#AR") |> find_elements("option") |> length()
+```
+
+:::{.callout-tip}
+## `s()`/`ss()` fungerar inte med flera samtidiga sessioner
+selenider har genvägarna `s()`/`ss()`, men de saknar ett `session`-argument — de använder alltid "den lokala sessionen". Eftersom `starta_skrapsession()` medvetet skapar sessionen med `local = FALSE` (annars stängs den för tidigt, se [Vanliga fallgropar](#fallgropar)), använd istället `hitta(skrap, ...)` och `hitta_alla(skrap, ...)` från `func_webbskrapning.R`. I ett längre skript kan du binda lokala genvägar en gång i början: `s <- function(...) hitta(skrap, ...)`.
+:::
+
+## Steg 4 — Klick via text när `id` saknas
+
+```r
+find_element(
+  skrap$session,
+  xpath = "//*[normalize-space(.)='Alla kommuner'][not(.//*[normalize-space(.)='Alla kommuner'])]"
+) |> elem_click()
+```
+
+Den här xpath-varianten matchar det **innersta** elementet vars hela text (inklusive undernoder) är exakt lika med söksträngen — mer robust än att bara kolla elementets egen textnod, som missar text inuti t.ex. `<label><input>Text</label>`-strukturer.
+
+:::{.callout-warning}
+## Långsamt på sidor med många likadana textmatchningar
+Om sidan har många element med samma eller liknande text (t.ex. en lista med "Alla kommuner" — en per län) blir ovanstående xpath dyr att evaluera, och selenider kör den upprepade gånger under sin automatiska väntan — i praktiken kan ett enda klick då ta uppemot en minut. Använd istället `klicka_via_text(skrap, "Alla kommuner")`, som gör klicket i en enda JavaScript-körning via CDP utan seleniders pollande väntelogik. Spara den xpath-baserade varianten för sidor med få, unika textmatchningar.
+:::
+
+:::{.callout-warning}
+## `klicka_via_text()` kan klicka fel element om `selector` görs för bred
+Default-selektorn i `klicka_via_text()` omfattar bara riktiga klickbara elementtyper (`a`, `button`, `input`, `label`) — medvetet, INTE generiska omslagstaggar som `div`/`span`/`li`. Orsaken: en förälder-`<div>` vars enda innehåll är en `<a>`-länk får samma trimmade text som länken själv, och hittas då FÖRE länken i dokumentordning (en förälder kommer alltid före sitt barn) — men ett klick på en sådan `<div>` gör oftast ingenting, eftersom klickhanteraren sitter på själva länken. Utökar du `selector` till att omfatta fler taggtyper, testa alltid att klicket faktiskt syns i webbläsaren (kör med `headless = FALSE`), inte bara att funktionen returnerar utan fel.
+:::
+
+## Steg 5 — Hantera postbacks
+
+Många äldre ASP.NET-sidor (som Socialstyrelsens statistikdatabas) laddar om delar av formuläret när man byter val i en dropdown. Vänta in att nästa element faktiskt finns och är synligt innan du fortsätter, istället för att anta att sidan hann uppdatera sig:
+
+```r
+find_element(skrap$session, "#TABELL") |> elem_select(value = "2")
+find_element(skrap$session, "#AR") |> elem_expect(is_visible, timeout = 30)
+```
+
+:::{.callout-warning}
+## Villkor i `elem_expect()` ska anges UTAN namespace-prefix
+`elem_expect(is_visible)` — **inte** `elem_expect(selenider::is_visible)`. `elem_expect()` bygger om uttrycket internt (non-standard evaluation), och ett `::`-anrop tolkas då fel med ett kryptiskt felmeddelande ("3 arguments passed to '::'"). Ladda selenider med `library(selenider)` i skriptets topp så slipper du tänka på det för varje villkor.
+:::
+
+## Steg 6 — Flerval i en dropdown
+
+```r
+alla_varden <- find_element(skrap$session, "#AR") |>
+  find_elements("option") |>
+  as.list() |>
+  vapply(\(x) elem_attr(x, "value"), character(1))
+
+valda <- setdiff(alla_varden, c("2014", "2015", "2016"))
+find_element(skrap$session, "#AR") |> elem_select(value = valda)
+```
+
+Om sidan har en JavaScript-`onchange`-hanterare som inte triggas automatiskt av `elem_select()` (syns genom att sidan inte uppdaterar sig som väntat), trigga den manuellt via CDP:
+
+```r
+kor_js(skrap, "document.getElementById('AR').dispatchEvent(new Event('change'))")
+```
+
+## Steg 7 — Nedladdningen
+
+Testa gärna nedladdningssteget separat innan du sätter ihop hela skriptet, så du vet att exportknappen och `hamta_nedladdning()` samspelar:
+
+```r
+fil <- hamta_nedladdning(
+  skrap,
+  trigger = function() {
+    find_element(skrap$session, "#exportera") |> elem_click()
+  },
+  nedladdningsmapp = "C:/temp/nedladdningar",
+  monster = "\\.xlsx?$"
+)
+fil
+```
+
+## Steg 8 — Städa bort testsessionen
+
+```r
+stang_skrapsession(skrap)
+```
+
+## Steg 9 — Sätt ihop till en funktion
+
+Paketera stegen ovan i en funktion enligt mallen nedan, testa med `headless = FALSE` en sista gång för att se att hela flödet går igenom utan avbrott, och byt sedan till `headless = TRUE` för den version som ska köras skarpt/schemalagt.
+
+```r
+hamta_data <- function(tmpdir = "data_tmp", headless = TRUE, timeout = 30) {
+  dir.create(tmpdir, showWarnings = FALSE, recursive = TRUE)
+
+  skrap <- starta_skrapsession(headless = headless)
+  on.exit(stang_skrapsession(skrap), add = TRUE)
+
+  selenider::open_url("https://exempel.se/statistik", session = skrap$session)
+
+  # ... stegen du testade fram i Steg 3-6 ...
+
+  hamta_nedladdning(
+    skrap,
+    trigger = function() {
+      find_element(skrap$session, "#exportera") |> elem_click()
+    },
+    nedladdningsmapp = normalizePath(tmpdir, winslash = "/", mustWork = FALSE),
+    monster = "\\.xlsx?$",
+    timeout = timeout
+  )
+}
+```
+
+:::{.callout-note}
+## Exempel: Socialstyrelsens statistikdatabas
+Se `hamta_ek_bistand_individer_socialstyrelsen.R` i `funktioner`-repot för ett fullständigt, verifierat exempel byggt med den här metoden — inklusive kommentarer om vilka selektorer som verifierades via `visa_kontroller()` och vilka som fortfarande är overifierade (resultatsidans kontroller, markerade med en not i koden).
+:::
+
+## Iframes och botskydd
+
+**Iframes:** alla DOM-funktioner (`klicka_via_id()`, `klicka_via_text()`, `hamta_select_options()`, `valj_option_utan_event()`) har en `iframe`-parameter som tar en CSS-selektor för ramen, t.ex. `iframe = "#innehallsram"` eller `iframe = "iframe[name='data']"`. För nästlade iframes anges en vektor av selektorer, utifrån och in: `iframe = c("#yttre", "#inre")`. Detta fungerar för **same-origin**-iframes (ramen laddar innehåll från samma domän — vanligast på äldre myndighetssidor). Cross-origin-iframes blockeras av webbläsarens säkerhetsmodell och ger ett tydligt felmeddelande; enklaste lösningen är då oftast att navigera direkt till iframens `src`-URL med `open_url()`.
+
+**Botskydd:** headless-läget avslöjar sig självt via `HeadlessChrome` i user agent-strängen — den vanligaste signalen enkla botskydd tittar på. `headless = FALSE` tar bort den, och `starta_skrapsession(user_agent = "...")` kan sätta en vanlig UA-sträng även i headless-läge. Seriösare skydd (Cloudflare m.fl.) tittar dock på mycket mer (TLS-fingeravtryck, beteendemönster) och går inte att kringgå med enkla knep — leta då efter ett öppet API eller kontakta sajtägaren istället.
+
+# Referens: funktionerna i func_webbskrapning.R {#referens}
+
+| Funktion | Gör |
+|---|---|
+| `hitta_webblasare()` | Söker upp Edge eller Chrome automatiskt (kända sökvägar + Windows-registret). Anropas internt av `starta_skrapsession()`; kör den direkt för att se vilken webbläsare som skulle användas. |
+| `testa_skrapmiljo(browser_path = ...)` | Kör igenom förutsättningarna (R-paket, Edge-sökväg, processx-start, debug-port på `127.0.0.1`, chromote-anslutning) och skriver ut var det eventuellt brister. Kör den först på en ny maskin. |
+| `starta_skrapsession(port = NULL, headless = TRUE, browser_path = ..., profil_dir = ..., timeout = 15, view = FALSE, bredd = 1600, hojd = 1000, user_agent = NULL)` | Startar Edge (via `processx` med `supervise = FALSE`), väntar in fjärrfelsökningsporten, kopplar chromote via `127.0.0.1`, och skapar en selenider-session med `local = FALSE`. Returnerar ett objekt av klass `skrapsession` med fälten `session`, `chrom`, `process`, `profil_dir`, `port`. |
+| `stang_skrapsession(skrap)` | Stänger selenider-sessionen, chromote-anslutningen, avslutar just den Edge-processen som `starta_skrapsession()` startade, och tar bort dess temporära profilmapp. |
+| `with_skrapsession(expr, ...)` | Startar en session, kör `expr` (där `skrap` finns tillgänglig), och städar bort sessionen automatiskt efteråt — även vid fel. `...` skickas vidare till `starta_skrapsession()`. |
+| `hamta_nedladdning(skrap, trigger, nedladdningsmapp = ..., monster = NULL, timeout = 30, stabil_tid = 1)` | Motsvarigheten till Playwrights `expect_download()`. Ställer in nedladdningsmappen, kör `trigger()` (en funktion utan argument), och pollar mappen tills en ny fil slutar växa i storlek. `monster` är ett reguljärt uttryck för att filtrera bland flera samtidiga nedladdningar. |
+| `stall_in_nedladdningsmapp(skrap, mapp)` | Anropas normalt inte direkt — sätter Chrome DevTools-protokollets nedladdningsbeteende. Används internt av `hamta_nedladdning()`. |
+| `hitta(skrap, ...)` / `hitta_alla(skrap, ...)` | Genvägar till `find_element()`/`find_elements()` som tar skrapsession-objektet direkt — motsvarigheten till seleniders `s()`/`ss()`, som inte fungerar med våra sessioner. |
+| `hitta_via_text(skrap, text)` | Returnerar det innersta elementet vars synliga text matchar exakt — när du behöver ett element-objekt att kedja vidare på. Ska elementet bara klickas: använd `klicka_via_text()` (snabbare). |
+| `hamta_select_varden(skrap, css, iframe = NULL)` | Bekvämlighetswrapper: bara `value`-vektorn ur `hamta_select_options()`. |
+| `kor_js(skrap, js)` | Kör ett JavaScript-uttryck på sidan via CDP och returnerar värdet, konverterat till R. |
+| `klicka_via_text(skrap, text, selector = ...)` | Klickar på det första elementet vars synliga text matchar exakt, via en enda JavaScript-körning. Snabbare än ett xpath-baserat `elem_click()` på sidor med många liknande textmatchningar (se [Steg 4](#steg-4---klick-via-text-nar-id-saknas)). |
+| `klicka_via_id(skrap, css)` | Som `klicka_via_text()`, men matchar på en CSS-selektor (t.ex. ett `id`) istället för text. Kringgår seleniders auto-wait helt — användbart både för att snabba upp klick på element du redan vet är synliga, och som diagnostik (se [Vanliga fallgropar](#fallgropar)). |
+| `hamta_select_options(skrap, css)` | Läser ut alla `value`/`text`-par ur en `<select>`-lista i ett enda JavaScript-anrop. Betydligt snabbare än att loopa `find_elements("option")` + `elem_attr()`, som gör ett CDP-anrop per alternativ. |
+| `inspektera_kontroller(skrap)` | Returnerar en lista med tre data.frames: `selects` (alla `<select>`/`<option>`), `klickbara` (länkar/knappar), `inmatning` (textfält/kryssrutor/radioknappar). |
+| `visa_kontroller(skrap, max_options = 10)` | Skriver en lättläst sammanfattning av `inspektera_kontroller()` till konsolen. |
+
+# Vanliga fallgropar {#fallgropar}
+
+Den här listan är hämtad direkt från vår egen felsökning första gången vi satte upp det här — värd att skumma igenom innan du felsöker något som redan är löst en gång.
+
+:::{.callout-warning}
+## AppLocker blockerar `processx`s `supervisor.exe`
+`chromote::ChromoteSession$new()` startar normalt sin webbläsarprocess med `supervise = TRUE`, vilket i sin tur kräver `processx`s hjälpprogram `supervisor.exe`. På våra maskiner blockeras den av gruppolicy (felkod 1260), oavsett var den ligger (`AppData`, `C:/temp` — bara `Program Files`/`Windows` verkar vitlistat). Lösningen är att starta Edge själv med `processx::process$new(..., supervise = FALSE)` och ansluta chromote till den redan körande instansen — vilket är precis vad `starta_skrapsession()` gör.
+:::
+
+:::{.callout-warning}
+## `localhost` kan tima ut trots att webbläsaren svarar
+Windows slår ofta upp `localhost` till IPv6 (`::1`) i första hand, medan Edges fjärrfelsökningsport bara lyssnar på IPv4. `httr::GET("http://localhost:9222/...")` lyckas ofta ändå (den provar båda), men chromotes websocket-anslutning kan fastna. Anslut alltid via `127.0.0.1` explicit, inte `localhost`.
+:::
+
+:::{.callout-warning}
+## Portkrockar mellan sessioner
+Om en tidigare session inte städades bort ordentligt (t.ex. avbruten mitt i felsökning) kan en ny session av misstag ansluta till den gamla, redan trasiga instansen — vilket ger kryptiska fel som *"Session and underlying target have been closed"*. `starta_skrapsession()` väljer därför en slumpmässig ledig port via `httpuv::randomPort()` som default, istället för att alltid använda samma fasta port.
+:::
+
+:::{.callout-warning}
+## `selenider_session()`s `local = TRUE`-default stänger sessionen för tidigt
+Skapas selenider-sessionen inuti en hjälpfunktion (som `starta_skrapsession()`) med standardinställningen `local = TRUE`, knyts sessionens livslängd till *den funktionens* scope — sessionen stängs alltså automatiskt så fort funktionen returnerar, innan du hunnit använda den. `starta_skrapsession()` sätter därför `local = FALSE` och hanterar städningen explicit via `stang_skrapsession()`.
+:::
+
+:::{.callout-warning}
+## `s()`/`ss()` saknar `session`-argument
+Se [Steg 3](#steg-3---testa-selektorer-interaktivt) ovan — använd `find_element(skrap$session, ...)`/`find_elements(skrap$session, ...)` istället.
+:::
+
+:::{.callout-warning}
+## Villkor i `elem_expect()` utan namespace-prefix
+Se [Steg 5](#steg-5---hantera-postbacks) ovan — `elem_expect(is_visible)`, inte `elem_expect(selenider::is_visible)`.
+:::
+
+:::{.callout-warning}
+## `open_url()`s argumentordning
+`open_url(url, session = skrap$session)` — `url` är första positionella argumentet. Skrivs de i fel ordning matchas `skrap$session` in i `url`-parametern, vilket ger felet *"`url` must be a single string, not a `<selenider_session>` object"*.
+:::
+
+:::{.callout-note}
+## Edge saknas eller ligger på annan sökväg
+`starta_skrapsession()` letar Edge på `C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe` som default. Om en VM har den installerad på annan plats, sätt miljövariabeln `SKRAP_EDGE_PATH` i `.Renviron` istället för att hårdkoda sökvägen i varje skript.
+:::
+
+# Sammanfattning
+
+- **chromote + selenider** ger i praktiken samma arbetsflöde som Playwright, men kräver bara R-paketen och den Edge som redan finns på maskinen — ingen Python, inga extra binärer, inga AppLocker-krockar.
+- **Bygg nya skrapskript genom att inspektera, inte gissa:** starta en synlig session (`headless = FALSE`), kartlägg kontrollerna med `visa_kontroller(skrap)`, testa selektorer rad för rad, och skriv sedan ihop den färdiga funktionen.
+- Alla hjälpfunktioner finns i `func_webbskrapning.R`: `starta_skrapsession()`/`stang_skrapsession()`/`with_skrapsession()` för sessionens livscykel, `hamta_nedladdning()` för nedladdningar, och `kor_js()`/`inspektera_kontroller()`/`visa_kontroller()` för att utforska en sida.
+- De vanligaste fallgroparna — portkrockar, `localhost` vs `127.0.0.1`, `s()`s saknade session-argument, NSE i `elem_expect()`, argumentordningen i `open_url()` — är redan lösta i `func_webbskrapning.R` respektive dokumenterade i [Vanliga fallgropar](#fallgropar) om de dyker upp igen i ett nytt sammanhang.
