@@ -1,0 +1,289 @@
+---
+title: "Framtagande av cykelpotential"
+subtitle: "Metodbeskrivning: ruttanalys, passageberäkning och vyer för cykelpotentialkarta"
+listing-description: "Dokumentation för hur cykelpotential tas fram: från pendlingsstatistik och cykelklassning av NVDB:s vägnät, via ruttberäkning i pgRouting, till färdiga passagetal per vägsegment som används i karta och Shinyapp."
+author: "Samhällsanalys, Region Dalarna"
+date: last-modified
+lang: sv
+format:
+  html:
+    theme: cosmo
+toc: true
+toc-location: left
+toc-depth: 3
+number-sections: true
+code-copy: true
+---
+
+# Inledning
+
+Cykelpotential är ett mått på hur många som skulle kunna cykla till arbete eller skola, givet vägnätets kvalitet ur cykelperspektiv och avståndet mellan bostad och målpunkt. Måttet tas fram genom att kombinera två datakällor: NVDB:s vägnät, klassat efter hur väl varje segment lämpar sig för cykling, och pendlingsstatistik på 100-meters rutnivå. Genom att beräkna snabbaste cykelrutt för varje pendlingsrelation och aggregera antalet passager per vägsegment får vi ett passagetal som visar var cykelpotentialen är som störst.
+
+Metoden består av tre huvudsteg:
+
+1. **Cykelklassning av vägnätet** — varje segment i NVDB tilldelas en klass (B1–B5, C1–C5, G1–G2) som beskriver hur lämpat det är för cykling.
+2. **Ruttanalys** — snabbaste cykelrutt beräknas i pgRouting för varje pendlingsrelation, oavsett om en rutt hittas eller inte.
+3. **Passageberäkning och vyer** — antalet pendlingsrelationer som passerar varje vägsegment aggregeras och kopplas ihop med vägnätet i färdiga vyer för karta och Shinyapp.
+
+## Vem är detta för — och var ska jag börja läsa?
+
+::: {.callout-tip}
+## Du vill förstå hur cykelpotentialen räknas fram
+Läs **[Cykelklassa vägnätet](#cykelklassa-vagnatet)** och **[Ruttanalys och passageberäkning](#ruttanalys)** i tur och ordning. Det är den ordning stegen faktiskt körs i, och varje avsnitt bygger på resultatet från föregående.
+:::
+
+::: {.callout-warning}
+## Du vill slå upp vad en viss funktion gör
+Läs **[Referens: funktionerna i func_ruttanalys_cykel.R](#referens)**.
+:::
+
+Alla funktioner som nämns finns i `func_ruttanalys_cykel.R` i vårt `funktioner`-repo.
+
+# Cykelklassa vägnätet {#cykelklassa-vagnatet}
+
+Innan ruttanalysen kan köras behöver hela vägnätet (NVDB) klassificeras utifrån hur lämpligt varje segment är för cykling. Klassningen görs i funktionen `Cykelklassa_nvdb()` och bygger vidare på klassningar gjorda av Tyréns samt [Trafikverket](https://trafikverket.diva-portal.org/smash/get/diva2:1613574/FULLTEXT01.pdf).
+
+## Geografiskt urval
+
+Vägnätet klipps till det valda länet plus en buffertzon (standard 5 km) utanför länsgränsen. Buffertzonen finns med eftersom en del pendlingsresor korsar länsgränsen, men sträckor längre än så bedöms sällan vara realistiska cykelavstånd.
+
+## Klassningshierarki
+
+Varje vägsegment tilldelas en cykelklass genom en serie villkor som testas i turordning — det första villkoret som stämmer avgör klassen, och redan klassade segment lämnas orörda i efterföljande steg. I stora drag följer klassningen denna prioritetsordning:
+
+1. **Gångnät (B5)** — segment som är del av gångnätet, t.ex. trappor, torg och hissar, klassas som olämpliga för cykel.
+2. **Renodlat cykelnät (C1–C4)** — cykelbanor, cykelpassager och övergångsställen klassas efter beläggning (slitlager) och väglänkstyp, där C1 är den mest cykelvänliga varianten.
+3. **Felkategoriseringar** — segment där vägtyp och den detaljerade GCM-typen (gång/cykel/mopedtyp) motsäger varandra korrigeras manuellt (t.ex. en väg klassad som gång men med cykel-attribut blir C1, och vice versa).
+4. **Gatupassager utan utmärkning (C5)** — hanteras enligt försiktighetsprincipen när ingen trafiksäkerhetsklassning finns.
+5. **Motorväg och höghastighetsvägar (B5)** — vägar med hastighetsgräns över 90 km/h, eller som är motorväg/motortrafikled, klassas som direkt olämpliga.
+6. **Blandtrafik med trafikdata (B1–B4)** — för vägar med känd ÅDT (årsdygnstrafik) avgörs klassen av kombinationen hastighetsgräns och trafikmängd — ju lägre hastighet och trafik, desto bättre klass (B1 bäst).
+7. **Blandtrafik utan trafikdata (B1–B4)** — när ÅDT saknas används istället väglagstyp (t.ex. småväg, parkeringsväg, huvudgata) tillsammans med hastighetsgräns för att uppskatta motsvarande klass.
+8. **Enskilda vägar (B1)** — vägar med enskilt huvudmannaskap klassas schablonmässigt som B1.
+9. **Grusvägar (G1–G2)** — vägar med grusbeläggning delas in efter huvudmannaskap: statligt/kommunalt underhåll ger G1, övriga G2.
+
+Utöver huvudklassningen appliceras ett par kompletterande regler: smala B2-vägar (under 4 meter) nedgraderas till B1, och huvudgator i mindre tätorter (färre än 10 000 invånare) nedgraderas från B3 till B2.
+
+::: {.callout-note}
+## Förenklad klassvariabel
+Utöver huvudklassningen (`cykelklass`) skapas en förenklad variant, `cykelklass_2`, som slår ihop vissa närliggande klasser (t.ex. C1/C3/C4 → C1). Den används i visualiseringar där en mer översiktlig indelning är önskvärd.
+:::
+
+## Koppling till DeSO och kommun
+
+Vägnätet kopplas till DeSO- och kommunindelningen genom en rumslig join. Eftersom buffertzonen sträcker sig in i grannlän utan DeSO-täckning hanteras dessa segment separat:
+
+- **Vägar inom länet** klipps mot DeSO-lagret och får DeSO-, RegSO- och kommunattribut.
+- **Vägar utanför DeSO-täckningen** (buffertzon/grannlän) behålls oklippta med tomma DeSO-attribut.
+
+På så sätt tappas inga vägsegment bort tyst i skarven mellan län.
+
+## Street View-länkar
+
+Varje vägsegment får en genererad Google Street View-länk baserad på segmentets mittpunkt (centroid), beräknad efter DeSO-klippningen så att koordinaten matchar rätt slutgiltiga segment.
+
+## Resultat
+
+Funktionen returnerar det fullständiga, klassade vägnätet med en unik `lank_id` per segment — samma nyckel som sedan används genomgående i ruttanalysen för att koppla ihop passageberäkningar med rätt vägsegment.
+
+### För beräkning av cykelpotential
+
+Hela vägnätet för Dalarnas län har cykelklassats enligt ovanstående metod. Klassningen utgår från vägens fysiska beskaffenhet och en uppskattning av dess trafiksäkerhet för cyklister, och ligger till grund för urvalet av cykelbara vägar i respektive ruttanalys. Körs ruttanalysen på hela vägnätet tas ingen hänsyn till cykelklass i sig — algoritmen söker enbart kortaste möjliga rutt mellan bostad och arbete/skola i det nätverk som vägnätet utgör, oavsett om det innebär en cykelväg eller en motorväg. För att komplettera bilden har därför även en ruttanalys körts på ett begränsat urval av vägnätet, där olämpliga vägtyper — exempelvis motorvägar — exkluderas innan algoritmen söker kortaste väg.
+
+# Ruttanalys och passageberäkning {#ruttanalys}
+
+När vägnätet är cykelklassat och sparat med en unik `lank_id` per segment (se [Cykelklassa vägnätet](#cykelklassa-vagnatet)) kan ruttanalysen köras. Pipelinen är byggd kring tre principer som går igen i flera av funktionerna nedan:
+
+::: {.callout-note}
+## Tre bärande principer i pipelinen
+1. **Inga rader försvinner.** Resultattabellen för rutter innehåller alltid en rad per pendlingsrelation, även när ingen rutt kunde hittas. En separat kolumn (`har_rutt`) skiljer på täljare och nämnare, så att andelar går att räkna korrekt.
+2. **`lank_id` följer med hela vägen.** Passager aggregeras via en separat edge-tabell som mappar varje pendlingsrelation till de vägsegment (och därmed `lank_id`) rutten passerar. Resultatet går sedan att joina direkt mot det cykelklassade nätet.
+3. **Dijkstra körs bara en gång per relation**, inte en gång per tidsgräns eller fordonstyp. Eftersom cykel- och elcykelkostnad bara skiljer sig åt i hastighet (inte i vägval) blir snabbaste rutten identisk för båda — det räcker att spara rutten en gång och sedan filtrera per gräns i efterhand med ren SQL.
+:::
+
+Funktionerna körs i tur och ordning enligt nedan.
+
+## Sätt namn på scheman och tabeller
+
+`namn_scheman_och_tabeller()` sätter alla tabell- och schemanamn som resten av pipelinen använder, utifrån två val: **analystyp** (`har_skolform`: arbete eller skola) och **nätverkstyp** (`rutt_cykelklass`: hela NVDB eller bara det cykelklassade nätet). Namnen byggs som `rutter_<analys>_<nättyp>`, `rutt_edges_<analys>_<nättyp>` och `rutt_antal_<analys>_<nättyp>`, vilket gör att arbete/skola och nvdb/cykelklass kan köras parallellt utan att skriva över varandras resultat. Av bakåtkompatibilitetsskäl sätts namnen även som globala variabler, utöver att de returneras som en lista.
+
+## Läs in NVDB
+
+`lasa_nvdb()` läser in det cykelklassade vägnätet från databasen och skriver en filtrerad temp-kopia (`tabell_nvdb_tmp`) som resten av pipelinen jobbar mot. Funktionen kräver att kolumnen `lank_id` finns — saknas den avbryts körningen med ett tydligt felmeddelande, eftersom hela passageaggregeringen längre fram bygger på den.
+
+Filtreringen styrs av `rutt_cykelklass`:
+
+- **Cykelklassat nät, arbete:** alla klasser utom B5 (olämpligt för cykel) tas bort.
+- **Cykelklassat nät, skola:** endast klasserna C1–C5, B1, G1 och G2 behålls.
+- **Fullt NVDB:** ingen filtrering görs alls.
+
+Efter filtrering skapas geometriindex, en `id`-primärnyckel och ett index på `lank_id` i temp-tabellen.
+
+## Förbered pendlingsfilen
+
+`forbered_pendling()` läser in pendlingsdata (arbets- eller skolpendling, beroende på `har_skolform`) på 100-meters rutnivå och gör den redo för ruttning:
+
+- Rutcentroider beräknas för både bostad och målpunkt (mittpunkt av varje 100 m-ruta).
+- Relationer med saknade koordinater (`0`-värden) tas bort.
+- Relationer där bostad och målpunkt ligger i **exakt samma ruta** filtreras bort (villkoret är att *både* x- och y-koordinat är identiska — inte att endera skiljer sig, vilket var en tidigare bugg).
+- Relationer utanför länet plus en buffertzon (standard 5 km) tas bort.
+- Varje relation kopplas till DeSO och RegSO via en rumslig join.
+
+Resultatet skrivs till en ny tabell i `schema_relation`, namngiven `rut100_<år>` utifrån senaste året i datan, med index på både bostads- och målpunktsgeometrin.
+
+## Sätt restidsparametrar
+
+`satt_restidsparametrar()` sätter hastigheter för cykel och elcykel (16/22 km/h för arbetspendling, 10/14 km/h för skolpendling) och beräknar kostnaden — restid i minuter — för varje vägsegment i temp-nätet, utifrån segmentlängd och hastighet. Både hastighets- och kostnadskolumnerna sätts i en enda `UPDATE`-sats för effektivitetens skull.
+
+## Skapa topologi
+
+`skapa_topologi()` bygger den pgRouting-topologi som Dijkstra-beräkningen behöver: `source`- och `target`-kolumner läggs till, `pgr_createTopology()` och `pgr_analyzeGraph()` körs, och ett spatialt index skapas på de genererade nodpunkterna (`_vertices_pgr`) — detta krävs för att snappningen i nästa steg ska vara snabb.
+
+## Koppla topologi till punkter
+
+`koppla_topo_till_punkter()` snappar varje pendlingsrelations start- och slutpunkt (bostad respektive målpunkt) till närmaste nod i vägnätets topologi, via en KNN-sökning (`<->`) mot det spatiala indexet. Innan snappningen tas kanter utan giltig `source`/`target` bort, så att relationer inte snappas mot noder som sedan saknas i grafen.
+
+## Beräkna rutter batchvis
+
+`berakna_rutter_batch()` är kärnan i ruttanalysen. Den bygger två resultattabeller:
+
+- **`tabell_rutt_avst`** — en rad per pendlingsrelation (`obs_id`), med restid, avstånd och ruttens geometri.
+- **`tabell_rutt_edges`** — en rad per (relation, segment)-kombination, som kopplar varje relations rutt till de `lank_id` den passerar.
+
+Beräkningen körs batchvis (standard 1 000 relationer per batch) för att hålla minnesanvändningen rimlig. För varje batch:
+
+1. Ett urval av relationer läses till en temp-tabell.
+2. `pgr_dijkstra()` körs **en gång** för hela batchen, med `cost_cykel` som både kostnad och återkostnad (`reverse_cost`) — en tidigare version använde av misstag elcykelkostnaden som återkostnad, vilket gjorde grafen felaktigt asymmetrisk och fick rutter att "föredra" att köra segment baklänges.
+3. Relationer **med** rutt får sina kostnader och sin geometri beräknade genom att summera/slå ihop de passerade segmenten.
+4. Relationer där start- och slutnod är samma nod får en trivial nollrutt (kostnad och avstånd 0).
+5. Relationer **utan** rutt sparas ändå, med `har_rutt = FALSE` och NULL-kostnader, så att de finns kvar i nämnaren för senare andelsberäkningar.
+6. Edge-listan sparas, så att passageberäkningen i nästa steg kan köras utan att behöva räkna om rutterna.
+
+Efter samtliga batchar skapas index, och en kontrollsumma jämför antal relationer och total befolkning in mot ut — stämmer inte dessa varnar funktionen om möjliga dubbletter i `obs_id`.
+
+## Beräkna antal passager per länk
+
+`kor_ruttberakning()` räknar, helt i SQL utan att köra om Dijkstra, hur många pendlingsrelationer som passerar varje `lank_id` inom olika tids- eller avståndsgränser. Resultattabellen (`tabell_rutt_antal`) skapas med **en rad per `lank_id` i hela det klassade nätet** — inte bara de som faktiskt har passager — så att även segment med noll passager finns med som nämnare i kartan.
+
+Vilka gränser som beräknas styrs av `har_skolform`:
+
+- **Arbete:** passager inom `tidsgranser` (standard 15/30/45 min), för både cykel och elcykel.
+- **Skola:** passager inom `tidsgranser` för gymnasiet, samt `avstandsgranser` (standard 2/3/5 km) för grundskolan, eftersom grundskoleelever antas ha en fast skola snarare än ett val baserat på restid.
+
+Varje kombination av fordon, gräns och (för skola) skolform blir en egen kolumn, t.ex. `pass_cykel_30_arbete` eller `pass_elcykel_3000_grundskolan`. Aggregeringen använder `DISTINCT (lank_id, obs_id)` så att en relation räknas högst en gång per länk, även om rutten råkar passera flera ursprungliga vägsegment som hör till samma `lank_id`.
+
+# Resultatvyer {#resultatvyer}
+
+När passagetalen är beräknade kopplas de ihop med det cykelklassade nätets geometri i färdiga databasvyer, som används direkt i karta och Shinyapp.
+
+## Geometri-hjälpfunktion
+
+`hamta_geom_cast()` löser ett återkommande QGIS-problem: vid `CREATE TABLE AS`/`CREATE MATERIALIZED VIEW` ärvs **inte** käll­tabellens geometrityp och SRID automatiskt till den nya tabellen, vilket gör att lagret kan visas som trasigt eller tomt i QGIS. Funktionen läser av geometrityp och SRID (från `geometry_columns`, med en fallback som läser datan direkt om metadatan saknas) och bygger ett explicit cast-uttryck (`ST_Multi(ST_MakeValid(...))::geometry(...)`) som sedan används i vy-skapandet. Om flera olika geometrityper hittas i samma kolumn varnar funktionen och castar till multi-varianten av den vanligaste typen.
+
+## Enskild vy per nät och analystyp
+
+`skapa_ruttanalys_vy()` bygger en resultattabell för **en** kombination av nät (nvdb eller cykelklass) och analystyp (arbete eller skola). Funktionen validerar först att alla förväntade kolumner faktiskt finns — både i vägnätet och i passagetabellen — och avbryter med ett tydligt felmeddelande om något saknas (t.ex. om `tidsgranser`/`avstandsgranser` i `kor_ruttberakning()` inte matchar det som efterfrågas här). Vyn skapas som en vanlig tabell med `INNER JOIN` mot passagetabellen på `lank_id`, får en egen `id`-primärnyckel samt index på `lank_id` och geometrin.
+
+## Kombinerad vy för hela appen
+
+`skapa_cykelpotential_vy()` slår ihop **alla fyra** kombinationer (arbete/skola × nvdb/cykelklass) i en enda materialiserad vy, med passagekolumnerna namngivna per källa (t.ex. `pass_cykel_30_arbete_nvdb` respektive `..._cykelklass`). Vyn byggs med `LEFT JOIN` från hela vägnätet mot samtliga fyra passagetabeller, och inkluderar bara segment som har **minst en** beräknad passage i någon av de fyra kombinationerna (`WHERE ... <> 0`). Det här är den vy som Shinyappen och kartan i slutänden läser ifrån.
+
+# Kör hela pipelinen {#kor-pipelinen}
+
+Nedan är ett exempel på hur samtliga funktioner ovan sätts ihop till en komplett körning, från databaskoppling till att kopplingen stängs. Numreringen i kommentarerna följer samma ordning som funktionerna beskrivs i under [Ruttanalys och passageberäkning](#ruttanalys) och [Resultatvyer](#resultatvyer).
+
+I exemplet körs ruttanalysen för arbetspendling (`har_skolform = FALSE`) på det cykelklassade nätet (`rutt_cykelklass = TRUE`).
+
+```r
+# Använd uppkoppling db
+con <- uppkoppling_adm("ruttanalyser")
+
+# ==== Sätt villkor =====
+har_skolform <- FALSE      # FALSE om arbetspendling ska användas
+rutt_cykelklass <- TRUE    # FALSE om hela nvdb ska användas oberoende av vägklass
+
+# ==== Sätt namn på scheman och tabeller ====
+namn_scheman_och_tabeller(har_skolform = har_skolform, rutt_cykelklass = rutt_cykelklass)
+
+# ==== 1. Läs in och förbered NVDB ====
+lasa_nvdb(con,
+          schema_nvdb = schema_nvdb,
+          tabell_nvdb = tabell_nvdb,
+          tabell_nvdb_tmp = tabell_nvdb_tmp,
+          rutt_cykelklass = rutt_cykelklass,
+          har_skolform = har_skolform)
+
+# ==== 2. Skapa topologi till pgRouting ======
+skapa_topologi(con, schema_nvdb, tabell_nvdb_tmp)
+
+# ==== 3. Läs in och förbered pendlingstabell samt annan data ====
+forbered_pendling(con, con_pendling = uppkoppling_adm("sekretess"),
+                  schema_pendling = "rutor",
+                  schema_relation = schema_relation,
+                  buffer = 5000,
+                  har_skolform = har_skolform)
+
+# ==== Ruttanalysen =============================================
+
+# ==== 4. Sätt hastigheter ====
+# Baserat på om det är arbets- eller skolpendling som analyseras
+satt_restidsparametrar(con, schema_nvdb, tabell_nvdb_tmp, har_skolform = har_skolform)
+
+# ==== 5. Koppla närmaste topologipunkt till start- och slutpunkter i relationstabellen ====
+koppla_topo_till_punkter(con, schema_relation, pend_tabell,
+                         schema_nvdb, tabell_nvdb_tmp)
+
+# ==== 6. Skapa rutter med avstånd mellan start- och målrutor ====
+berakna_rutter_batch(con,
+                     schema_relation, pend_tabell,
+                     schema_nvdb, tabell_nvdb_tmp,
+                     tabell_rutt_avst, tabell_rutt_edges,
+                     har_skolform = har_skolform,
+                     batch_size = 1000)
+
+# ==== 7. Skapa antal resande per segment (Dijkstra-passager) ====
+kor_ruttberakning(con,
+                  schema_relation,
+                  tabell_rutt_avst, tabell_rutt_edges, tabell_rutt_antal,
+                  schema_nvdb, tabell_nvdb,
+                  tidsgranser = c(15, 30, 45),
+                  avstandsgranser = c(2000, 3000, 5000),
+                  har_skolform = har_skolform)
+
+# ==== 8. Skapa materialiserad vy med allt resultat ====
+skapa_cykelpotential_vy(con,
+                        mv_schema = "ruttanalys_cykel",
+                        mv_namn = "cykelpotential_vy",
+                        schema_nvdb_karta = "nvdb_cykel",
+                        tabell_nvdb_karta = "nvdb_cykelklassat",
+                        schema_relation = "ruttanalys_cykel",
+                        tabell_arbete_nvdb = "rutt_antal_arbete_nvdb",
+                        tabell_arbete_cykelklass = "rutt_antal_arbete_cykelklass",
+                        tabell_skola_nvdb = "rutt_antal_skola_nvdb",
+                        tabell_skola_cykelklass = "rutt_antal_skola_cykelklass",
+                        extra_nvdb_kolumner = character(0),
+                        skriv_over = TRUE)
+
+# ==== 9. Stäng kopplingen ====
+dbDisconnect(con)
+```
+
+::: {.callout-tip}
+## Varför körs inte `skapa_ruttanalys_vy()` här?
+`skapa_ruttanalys_vy()` skapar en fristående tabell för **en** kombination av nät och analystyp, medan `skapa_cykelpotential_vy()` i steg 8 bygger den kombinerade vyn med samtliga fyra kombinationer i ett svep. I en normal körning av hela pipelinen räcker det därför med steg 8 — `skapa_ruttanalys_vy()` är i första hand användbar om man vill titta på eller felsöka en enskild kombination för sig.
+:::
+
+# Referens: funktioner i pipelinen {#referens}
+
+| Funktion | Syfte |
+|---|---|
+| `namn_scheman_och_tabeller()` | Sätter alla schema-/tabellnamn dynamiskt utifrån analystyp och nätverkstyp |
+| `lasa_nvdb()` | Läser in och filtrerar vägnätet, skriver temp-tabell |
+| `forbered_pendling()` | Läser in och rensar pendlingsdata, kopplar DeSO |
+| `satt_restidsparametrar()` | Sätter hastigheter och beräknar restid per segment |
+| `skapa_topologi()` | Bygger pgRouting-topologin |
+| `koppla_topo_till_punkter()` | Snappar start-/slutpunkter till närmaste nod |
+| `berakna_rutter_batch()` | Kör Dijkstra batchvis, en rad per relation |
+| `kor_ruttberakning()` | Aggregerar antal passager per `lank_id` |
+| `hamta_geom_cast()` | Löser geometrityp/SRID inför QGIS |
+| `skapa_ruttanalys_vy()` | Bygger enskild resultattabell (nät × analystyp) |
+| `skapa_cykelpotential_vy()` | Bygger kombinerad materialiserad vy för appen |
