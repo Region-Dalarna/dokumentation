@@ -86,7 +86,7 @@ origo/
 
 ## QGIS Server
 
-QGIS Server installeras under `E:\Apps\inetpub\wwwroot\QGISBackend` De lager som visas i webbkartan publiceras på QGIS Server via QGIS Desktop som finns installerat på respektive serveryta. 
+QGIS Server installeras under `E:\Apps\inetpub\wwwroot\QGISBackend` De lager som visas i webbkartan publiceras på QGIS Server via QGIS Desktop som finns installerat på respektive serveryta.
 
 # Webbkartan
 
@@ -201,8 +201,7 @@ Data publiceras via QGIS Server (WFS eller WMS) som ovan men ska visas som flera
  }
 ]
 ```
-Nu kan man från samma källa lägga till flera lager i Origokartan baserat på olika kolumner så länge man definierar "source" till den skräddarsydda källan. 
-
+Nu kan man från samma källa lägga till flera lager i Origokartan baserat på olika kolumner så länge man definierar "source" till den skräddarsydda källan.
 
 ## Grupper
 
@@ -284,17 +283,238 @@ Stilsättning av kartlager skapas med OpenLayers-stilar. I OpenLayers skapas sti
 }
 ```
 
-## Plugins
+# R-funktioner för konfigurationshantering
+
+För att slippa redigera `styles.json` och `index.json` för hand har vi byggt två samlade R-skript, `origo_styles.R` och `origo_layers.R`, som paketerar CRUD-hantering, batch-redigering och validering av konfigurationsfilerna. Skripten source:as i R-sessionen och jobbar mot vanliga R-listor som sedan skrivs tillbaka till JSON.
+
+:::{.callout-note}
+Filerna heter historiskt `styles_master.txt`/`karta_*.txt` i skripten men motsvarar `styles.json` respektive `index.json` i den här dokumentationens namngivning - byt bara ut filnamnet i anropen nedan mot era faktiska filnamn.
+:::
+
+## origo_styles.R - hantera styles.json
+
+Grundfunktioner för att läsa, skapa, redigera och ta bort stilar:
+
+```r
+source("origo_styles.R")
+styles <- origo_styles_read("styles.json")
+
+# Skapa en ny stil
+styles <- styles_ny(styles, namn = "mitt_lager_style", regler = list(...))
+
+# Redigera en befintlig stil (ersätter hela definitionen)
+styles <- styles_redigera(styles, "mitt_lager_style", regler = list(...))
+
+# Lista/hämta/ta bort
+styles_lista(styles)
+styles_hamta(styles, "mitt_lager_style")
+styles <- styles_ta_bort(styles, "gammal_stil")
+
+origo_styles_write(styles, "styles.json")
+```
+
+### Sökning i en stil
+
+Eftersom samma fältnamn (t.ex. `color`) ofta förekommer flera gånger i en och samma stil - antingen som olika filterbaserade regler (en färg per kategori) eller som lagrade stilkomponenter utan filter (t.ex. kant + kontur + streckning för samma linje) - är det osäkert att byta ut ett värde "automatiskt". Istället söker man fram alla träffar med sitt sammanhang (`label`/`filter`) och pekar ut rätt rad:
+
+```r
+traffar <- styles_sok(styles, "adt_dalarna", "width")
+traffar  # inspektera vilken rad som är rätt
+styles <- styles_patch_traff(styles, "adt_dalarna", traffar, rad = 1, varde = 3)
+```
+
+### Redigera i editor
+
+För större ändringar går det att öppna en stil som en riktig fil i RStudios editor, redigera den grafiskt, och läsa tillbaka ändringen:
+
+```r
+styles_oppna_for_redigering(styles, "adt_dalarna")
+# ... redigera filen i RStudio, spara med Ctrl+S ...
+styles_stang_redigering(styles, "adt_dalarna")   # uppdaterar "styles" automatiskt
+
+styles_spara_redigering(styles, "styles.json")   # skriver hela dokumentet till disk
+```
+
+`styles_spara_redigering()` vägrar skriva till disk om det finns kvarvarande, oinlästa redigeringsfiler - en säkerhetsspärr mot att av misstag spara en ofullständig version.
+
+## origo_layers.R - hantera index.json (lager och grupper)
+
+### Grupper (inklusive nästlade undergrupper)
+
+```r
+karta <- origo_map_read("index.json")
+
+karta <- grupp_ny(karta, "ny_grupp", "Ny grupp", foralder = "service_group")
+grupp_lista(karta)          # platt lista av alla gruppnamn, oavsett nästlingsnivå
+grupp_hamta(karta, "ny_grupp")
+karta <- grupp_ta_bort(karta, "ny_grupp")
+```
+
+### Lager
+
+```r
+# Skapa ett minimalt lager med bara ett namn - ger tomma platshållarfält
+# (title, group, source, type, style, renderMode, featureinfoTitle, attributes)
+# redo att fyllas i via editorn
+karta <- lager_ny(karta, "nytt_lager")
+
+# Eller en fullständig definition direkt
+karta <- lager_ny(karta, list(
+  name = "hallplatslage",
+  title = "Hållplatsläge",
+  group = "kollektivtrafik_group",
+  style = "hallplatslage",
+  source = "qgis"
+))
+
+lager_lista(karta)
+lager_hamta(karta, "hallplatslage")
+karta <- lager_redigera(karta, "hallplatslage", list(...))
+karta <- lager_ta_bort(karta, "hallplatslage")   # stödjer även en vektor av namn
+```
+
+Positioneringen i `layers`-arrayen styrs med `position`/`relativ_till`:
+
+```r
+karta <- lager_ny(karta, lager_def, position = "forst")
+karta <- lager_flytta(karta, "hallplatslage", position = "efter", relativ_till = "kommun_scb")
+```
+
+### Skapa flera lager i ett svep
+
+Användbart för t.ex. kategoriserade WMS-lager uppdelade i flera nivåer (se avsnittet om WFS-baserad featureinfo nedan för varför detta ofta görs):
+
+```r
+karta <- lager_ny_serie(
+  karta,
+  layers = list(
+    list(name = "tatortsregioner_vard_0", title = "Nivå 0"),
+    list(name = "tatortsregioner_vard_1", title = "Nivå 1")
+  ),
+  mall = list(
+    group = "ortsstruktur_vard",
+    source = "qgis",
+    type = "WMS",
+    renderMode = "image"
+  )
+)
+```
+
+### Stämma av lager mot stilar
+
+```r
+lager_kontrollera_stilar(karta, styles)   # data.frame: lager, style, finns (TRUE/FALSE)
+```
+
+`origo_map_validera()` körs automatiskt vid `origo_map_write()` och varnar (utan att stoppa skrivningen) om ett lager pekar på en grupp eller stil som inte finns.
+
+### Skapa en ny karta från en befintlig mall
+
+Eftersom en fullständig `index.json` innehåller mycket mer än bara `layers`/`groups` (projektion, kartcentrering, källor, kontroller) skapas nya kartor genom att utgå från en befintlig, fungerande fil som mall - `groups`/`layers` töms, resten behålls:
+
+```r
+karta_ny(
+  mall_path = "kartor/kulturkarta/kulturkarta.json",
+  ny_path   = "kartor/ny_karta/ny_karta.json",
+  title     = "Ny karta"   # valfritt: skriv över enstaka toppnivåfält
+)
+```
+
+### Redigera lager i editor (enskilt och i batch)
+
+Samma editor-mönster som för stilar, med stöd för att redigera flera lager i en och samma fil samtidigt:
+
+```r
+# Ett enskilt lager
+lager_oppna_for_redigering(karta, "hallplatslage")
+karta <- lager_stang_redigering(karta, "hallplatslage")
+
+# Flera specifika lager i EN fil
+lager_oppna_serie_for_redigering(karta, namn = c("lager_a", "lager_b"), batch_namn = "uppdatering")
+karta <- lager_stang_serie_redigering(karta, "uppdatering")
+
+# Alla lager i en grupp
+lager_oppna_serie_for_redigering(karta, grupp = "ortsstruktur_vard", batch_namn = "vard")
+karta <- lager_stang_serie_redigering(karta, "vard")
+
+karta <- lager_spara_redigering(karta, "index.json")
+```
+
+# Plugins
 
 Nedan listas de plugin till Origo som finns installerade i Region Dalarnas webbkarta
 
-### PrintLogoSwitcher
+## PrintLogoSwitcher
 
 Pluginet PrintLogoSwitcher låter användaren registrera flera logotyper och ger möjligheten att ändra utskriftslogotypen i din Origo-kartinstans. Resultatet är att kartan renderas med Origo baserat på JSON‑konfigurationerna och får stöd för dynamiskt byte av logotyp vid utskrift.
 
 :::{.callout-note}
 Läs mer på [PrintLogoSwitcher på Github](https://github.com/kartomat/print-logo-switcher-plugin)
 :::
+
+## VisibleLayersSort
+
+Origos inbyggda `legend`-kontroll (med `visibleLayersControl: true`) visar bara en filtrerad lista över påslagna lager - den saknar möjligheten att sortera ritordning fritt över grupp-/rubrikgränser, eftersom drag-och-släpp i legend-trädet bara fungerar mellan syskon inom samma grupp.
+
+`VisibleLayersSort` är ett eget plugin som visar en platt, dragbar lista över alla lager som är påslagna just nu, oavsett grupptillhörighet. Vid omordning räknas listans nya ordning om till `zIndex`-värden som sätts direkt på respektive `ol/layer`-objekt via `layer.setZIndex()`.
+
+**Funktionalitet:**
+
+- Egen knapp, monteras i legend-headerns knapprad bredvid "Visa endast tända lager" (med fallback till maptools-verktygsraden om den raden inte hittas i DOM:en)
+- Panelen är dragbar via rubriken, och positioneras initialt till vänster om legend-panelen
+- Ikoner klonas från den riktiga legend-radens ikon (stödjer både SVG- och bildbaserade ikoner), så de alltid matchar exakt
+- Lager utan `group`-egenskap (t.ex. interna Origo-verktygslager som Measure/Draw) filtreras bort automatiskt
+- Baskartor (gruppen `background`) exkluderas, eftersom de ska ligga längst ner och är ömsesidigt uteslutande
+
+**Konfiguration** - läggs till i init-koden på samma sätt som övriga plugins:
+
+```html
+<script type="module">
+  import VisibleLayersSort from './plugins/visible-layers-sort/visible-layers-sort.js';
+  // ...
+  origo.on('load', function(viewer) {
+    VisibleLayersSort({}, viewer);
+  });
+</script>
+```
+
+## Wms/WfsFeatureinfo
+
+QGIS Server 3.x kräver att parametern `WITH_GEOMETRY=true` skickas med i `GetFeatureInfo`-anrop för att geometrin ska returneras (annars `geometry: null`), och Origo saknar dokumenterat stöd för att skicka med den parametern. WMS `GetFeatureInfo` kräver dessutom som standard att man klickar på en icke-transparent pixel, vilket gör tunna linjer och små punktsymboler svåra att träffa.
+
+`WmsWfsFeatureinfo` löser båda problemen genom att hämta featureinfo från ett **motsvarande WFS-lager** istället för WMS egna `GetFeatureInfo` - WFS ger alltid fullständig geometri och kräver inte pixel-precision, eftersom frågan görs mot en liten buffert (BBOX) runt klickpunkten istället.
+
+**Konfiguration** - lägg till `featureinfoSource` på WMS-lagret, med **det exakta WFS-namnet från `GetCapabilities`** (se @sec-wfs-typename nedan):
+
+```{.json filename="index.json"}
+{
+  "name": "ortsstruktur_resultat_3",
+  "type": "WMS",
+  "source": "qgis",
+  "style": "mask",
+  "featureinfoSource": "ratt_wfs_namn_fran_getcapabilities",
+  "attributes": [
+    { "title": "Kommun: ", "name": "kommunnamn" },
+    { "title": "Antal skolor: ", "name": "antal_skolor", "hideIfZero": true }
+  ]
+}
+```
+
+- `attributes` återanvänds från den vanliga Origo-konventionen (`title`/`name`-par) för att styra vilka fält som visas i popupen, i vilken ordning, och med vilken rubrik
+- `hideIfZero: true` på ett enskilt attribut döljer hela raden om värdet är `0`, tomt eller saknas - användbart för t.ex. antalsfält som bara ska visas när det faktiskt finns något att räkna
+- Popupen byggs med Origos egna CSS-klasser (`o-popup`, `o-card`, `o-card-content` osv.) för att se identisk ut mot Origos inbyggda featureinfo-popup
+
+**Konfiguration i init-koden:**
+
+```html
+<script type="module">
+  import WmsWfsFeatureinfo from './plugins/wms-wfs-featureinfo/wms-wfs-featureinfo.js';
+  // ...
+  origo.on('load', function(viewer) {
+    WmsWfsFeatureinfo({}, viewer);
+  });
+</script>
+```
 
 # Skapa en ny webbkarta
 
@@ -310,6 +530,10 @@ Kopiera följande filer från en befintlig karta, förslagsvis index, till den n
 
 | **index.html** → döp om till webbkarta.html
 | **index.json** → döp om till webbkarta.json
+
+:::{.callout-tip}
+Detta steget kan göras direkt i R med `karta_ny()`, se avsnittet [R-funktioner för konfigurationshantering] ovan.
+:::
 
 ## Uppdatera .html
 
@@ -396,6 +620,7 @@ För att kontrollera att kartan och alla lager laddas korrekt kan webbläsarens 
 1. Kontrollera Console för JavaScript‑fel.
 1. Kontrollera Network för att se att WMS/WFS‑anrop returnerar status 200.
 1. Vid problem med WFS: kontrollera vilket TYPENAME som skickas i GetFeature‑anropet.
+1. Vid `400 Bad Request`: klicka på den felande raden i Network-fliken → fliken **Response** (inte Preview, som ofta bara visar "failed to load data" utan detaljer) - QGIS Server skickar oftast en förklarande text/XML med exakt vad som gick fel.
 
 ## Layers ordning WMS och WFS
 Om ett WMS lager ligger inlagt utan att tillhöra en grupp så måste det placeras längst ner i "layers" för att andra WFS lager ska få sin stilsättning synlig i kartan eller så behöver man sätta *"type": "background"* på WMS lagret. WFS lager blir annars klickbara men inte synliga.
@@ -405,4 +630,68 @@ Om man har ändrat namn på ett lager som man lagt in i QGIS projektet så kan i
 Origo hämtar från QGIS Server vara det gamla namnet som inte längre matchar "name" i "layers" i index.json. En lösning är att ta bort och sen lägga till lagret igen i QGIS projeketet. Sätt då det namn som matchar "layers" och "name" i index.json.
 
 Det som står i *GetCapabilities* är det giltiga namnet för WFS‑anrop från Origo.
+
+## WFS TYPENAME matchar inte lagernamnet i index.json {#sec-wfs-typename}
+
+Ett WMS-lagers `name` i `index.json` är **inte** garanterat samma sträng som det publicerade WFS-lagrets namn - särskilt inte när flera Origo-lager (t.ex. `_0` till `_5` för olika kategorier) delar samma underliggande QGIS-tabell men har olika "Short name" per nivå. Ett `GetFeature`-anrop med fel `TYPENAME` ger felet:
+
+```
+<ServiceException code="RequestNotWellFormed">TypeName 'x' could not be found</ServiceException>
+```
+
+**Lösning:** hämta WFS-tjänstens `GetCapabilities` och slå upp det exakta namnet:
+
+```
+http://karta.ltdalarna.se/qgis/?MAP=E:/QGISProjects/intern.qgz&SERVICE=WFS&VERSION=1.1.0&REQUEST=GetCapabilities
+```
+
+Sök (Ctrl+F) efter `<Name>` i svaret - det är den strängen som ska anges (t.ex. som `featureinfoSource` i `WmsWfsFeatureinfo`-pluginet, se ovan).
+
+## Databasfel: "operator existerar inte: character varying = integer"
+
+Om ett kategoriserat lager (t.ex. uppdelat i flera nivåer via Query Builder-filter i QGIS) ger ett fel liknande:
+
+```
+FEL: operator existerar inte: character varying = integer
+LINE 1: ...WHERE "Klass_vard" = 0 LIMIT ...
+```
+
+beror det på att kolumnen (`Klass_vard` i exemplet) är av texttyp (`character varying`) i databasen, men filtret jämför mot ett tal utan citattecken. PostgreSQL tillåter inte en sådan jämförelse utan explicit typomvandling.
+
+**Lösning:** lägg till citattecken runt värdet i lagrets filter (Layer Properties → Source → Query Builder/subset-sträng i QGIS):
+
+```
+"Klass_vard" = 0      ← fel (heltal)
+"Klass_vard" = '0'    ← rätt (text)
+```
+
+Kontrollera samtliga nivå-lager som skapats på samma sätt (t.ex. genom att duplicera och bara byta siffran) - de har ofta samma bugg.
+
+## Featureinfo skickas inte alls vid klick
+
+Om inget `GetFeatureInfo`-anrop syns i Network-fliken oavsett vart man klickar (inte ett fel-svar, utan inget anrop alls), beror det oftast på Origos standardinställningar för `featureinfoOptions`:
+
+- `hitTolerance` (standard `0` px) - kräver pixelperfekt klick, näst intill omöjligt för tunna linjer/små punktsymboler
+- `imageFeatureInfoMode` (standard `pixel`) - kräver att den klickade pixeln inte är helt transparent, vilket är vanligt i WMS-lager med `TRANSPARENT=true` och glesa symboler
+
+**Lösning**, lägg till på toppnivå i `index.json`:
+
+```{.json filename="index.json"}
+{
+  "featureinfoOptions": {
+    "hitTolerance": 5,
+    "imageFeatureInfoMode": "visible"
+  }
+}
+```
+
+Kontrollera även att lagret faktiskt har `"queryable": true` satt.
+
+Om featureinfo-anropet väl skickas men `geometry` kommer tillbaka som `null` och popupen ändå inte visas, se avsnittet om `WmsWfsFeatureinfo`-pluginet ovan - WMS `GetFeatureInfo` saknar för närvarande stöd för `WITH_GEOMETRY=true` i Origo, vilket QGIS Server 3.x kräver för att returnera geometri.
+
+## Filöverföring kan förstöra specialtecken i JS-filer
+
+Vid manuell kopiering av JavaScript-filer (t.ex. via fjärrskrivbord, chattverktyg eller e-post) kan tecken som `:`, `|`, `?`, `\` och `/` i sällsynta fall filtreras bort av mellanliggande verktyg, vilket ger svårtolkade syntaxfel i webbläsarkonsolen (t.ex. `Unexpected identifier`) som inte alls pekar på den faktiska orsaken.
+
+**Lösning:** ladda ner/överför filer direkt (t.ex. via nedladdningslänk eller binär FTP/SCP-överföring) istället för att kopiera texten manuellt genom mellanliggande program. Vid osäkerhet, öppna filen i en ren textredigerare och stäm av att specialtecken finns kvar innan den läggs på servern.
 
