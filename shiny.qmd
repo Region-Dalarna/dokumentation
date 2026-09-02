@@ -285,6 +285,11 @@ Därefter gör man sina revideringar och när man känner sig klar kan man köra
 ```r
 github_commit_push("appnamn", commit_txt = "Ny knapp med funktionen att kunna ladda ner hela dataset.")
 ```
+Detta pushar bara till `master` och triggar **ingen** deploy — `master` är alltid säker att pusha till. För att faktiskt publicera ändringen till Shiny-servern kör man därefter:
+```r
+shinyapp_publicera("appnamn")
+```
+Det är detta steg som merge:ar `master` in i produktionsbranchen (`publicera-publik`) och pushar den, vilket i sin tur startar GitHub Actions.
 
 Då startas GitHub Actions automatiskt och kör:
 ```bash
