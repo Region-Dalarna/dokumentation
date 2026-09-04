@@ -469,10 +469,45 @@ shinyapp_publicera("appnamn")
 ### Två vanliga situationer
 
 * **Du har klonat en app eller hämtat någons ändringar** som lagt till ett paket. Kör `renv::restore()` så installeras exakt de paket `renv.lock` anger — då har du samma miljö som den som gjorde ändringen.
-* **`renv::status()` klagar på att något är ur synk.** Har du installerat ett paket men glömt `renv::snapshot()`? Kör snapshot. Är det tvärtom (lockfilen har paket du inte installerat)? Kör `renv::restore()`.
+* **`renv::status()` klagar på att något är ur synk.** Har du installerat ett paket men glömt `renv::snapshot()`? Kör snapshot. Är det tvärtom (lockfilen har paket du inte installerat)? Kör `renv::restore()`. Visar `status()` istället att nästan *allt* saknas och nämner att lockfilen skapades med en annan R-version än den du kör — se [När du uppgraderar R lokalt](#r-uppgradering-renv).
 
 :::{.callout-note}
 Glöm inte `renv::snapshot()` efter att du lagt till ett paket — annars saknas det i `renv.lock`, och appen failar vid deploy på servern (paketet finns hos dig men inte i lockfilen). Tumregel: installerade du något nytt som koden använder, kör snapshot innan du publicerar.
+:::
+
+### När du uppgraderar R lokalt{#r-uppgradering-renv}
+
+renv håller ett separat paketbibliotek per R-version (`renv/library/windows/R-4.X/...`). Uppgraderar du R på din dator (t.ex. 4.5 → 4.6) pekar renv plötsligt mot ett i praktiken tomt bibliotek för den nya versionen, även om `renv.lock` fortfarande listar alla paket. `renv::status()` visar då `installed: n` för nästan allt, och ett rakt `renv::restore()` kan misslyckas eftersom den försöker bygga gamla, låsta paketversioner (t.ex. `terra`, `s2`, `sf`) från källkod mot en toolchain de inte längre stödjer.
+
+Lös det så här, i den nya R-versionen:
+
+```r
+renv::install()          # installera om det lockfilen kräver
+renv::install()          # kör igen — transitiva beroenden missas ibland första gången
+renv::status()           # se vad som kvarstår
+```
+
+Om enskilda paket failar (oftast de med C++-kod, t.ex. `terra`/`s2`/`sf`/`Rcpp`) — installera dem separat utan att låsa version, så renv hämtar senaste byggbara:
+
+```r
+renv::install(c("terra", "s2", "sf"))
+```
+
+När `renv::status()` bara visar väntade versionsskillnader (eller är helt ren), lås fast det nya läget:
+
+```r
+renv::snapshot(prompt = FALSE)
+renv::status()   # ska nu säga "No issues found"
+```
+
+Kontrollera att R-versionen i lockfilen verkligen uppdaterades innan du committar:
+
+```r
+jsonlite::fromJSON("renv.lock")$R$Version
+```
+
+:::{.callout-tip}
+Detta gäller **per projekt** — kör om proceduren för varje app du jobbar vidare i efter en R-uppgradering, inte bara den du råkar öppna först.
 :::
 
 Vill du veta mer om hur renv fungerar på servern — den delade paketcachen, hur paket byggs och varför vissa deployer tar längre tid — finns en fördjupning i [renv-miljö på Shiny-servern](#renv-shinyserver). Men för att bygga appar räcker stegen ovan.
@@ -1362,6 +1397,10 @@ jsonlite::fromJSON("C:/gh/<appnamn>/renv.lock")$R$Repositories   # ska visa http
 ```
 
 Därefter commit + push + publicera.
+
+### 10. R uppgraderat lokalt — renv verkar ha tappat halva biblioteket
+
+Om `renv::status()` lokalt plötsligt visar `installed: n` för snart sagt alla paket, och sista raden i utskriften nämner att lockfilen skapades med en annan R-version än den du kör — då är repos/https inte boven, utan att renv håller ett separat paketbibliotek per R-version. Se [När du uppgraderar R lokalt](#r-uppgradering-renv) i avsnittet *Paket och renv i en Shiny-app* för hela åtgärdsflödet (kör `renv::install()` i den nya versionen, snapshot:a, verifiera).
 
 ## Konfigurera GitHub Actions-runner för Shiny-app-deploy{#runner-shiny-deploy}
 
