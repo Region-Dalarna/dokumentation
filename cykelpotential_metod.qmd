@@ -1,7 +1,7 @@
 ---
 title: "Framtagande av cykelpotential"
 subtitle: "Metodbeskrivning: ruttanalys, passageberäkning och vyer för cykelpotentialkarta"
-listing-description: "Dokumentation för hur cykelpotential tas fram: från pendlingsstatistik och cykelklassning av NVDB:s vägnät, via ruttberäkning i pgRouting, till färdiga passagetal per vägsegment som används i karta och Shinyapp."
+listing-description: "Dokumentation för hur cykelpotential tas fram: från pendlingsstatistik och NVDB:s cykelklassade nät, via ruttberäkning i pgRouting, till färdiga passagetal per vägsegment som används i karta och Shinyapp."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -28,16 +28,16 @@ Metoden består av tre huvudsteg:
 ## Vem är detta för — och var ska jag börja läsa?
 
 ::: {.callout-tip}
-## Du vill förstå hur cykelpotentialen räknas fram
-Läs **[Cykelklassa vägnätet](#cykelklassa-vagnatet)** och **[Ruttanalys och passageberäkning](#ruttanalys)** i tur och ordning. Det är den ordning stegen faktiskt körs i, och varje avsnitt bygger på resultatet från föregående.
+## 🧑‍💻 Du vill förstå hur cykelpotentialen räknas fram
+Läs **[Cykelklassa vägnätet](#cykelklassa-vagnatet)**, **[Ruttanalys och passageberäkning](#ruttanalys)**, **[Röjandegranskning](#rojandegranskning)** och **[GeoJSON-cache för Shinyappen](#geojson-cache)** i tur och ordning. Det är den ordning stegen faktiskt körs i, och varje avsnitt bygger på resultatet från föregående.
 :::
 
 ::: {.callout-warning}
-## Du vill slå upp vad en viss funktion gör
-Läs **[Referens: funktionerna i func_ruttanalys_cykel.R](#referens)**.
+## 🛠️ Du vill slå upp vad en viss funktion gör
+Läs **[Referens: funktioner i pipelinen](#referens)**.
 :::
 
-Alla funktioner som nämns finns i `func_ruttanalys_cykel.R` i vårt `funktioner`-repo.
+Alla funktioner som nämns finns i `func_cykelpotential.R` (cykelklassningen) respektive `pgrouting_cykelklass_funktioner_ny.R` (resten av pipelinen), i vårt `funktioner`-repo. Se [Kör hela pipelinen](#kor-pipelinen) för hur filerna hänger ihop.
 
 # Cykelklassa vägnätet {#cykelklassa-vagnatet}
 
@@ -56,12 +56,21 @@ Varje vägsegment tilldelas en cykelklass genom en serie villkor som testas i tu
 3. **Felkategoriseringar** — segment där vägtyp och den detaljerade GCM-typen (gång/cykel/mopedtyp) motsäger varandra korrigeras manuellt (t.ex. en väg klassad som gång men med cykel-attribut blir C1, och vice versa).
 4. **Gatupassager utan utmärkning (C5)** — hanteras enligt försiktighetsprincipen när ingen trafiksäkerhetsklassning finns.
 5. **Motorväg och höghastighetsvägar (B5)** — vägar med hastighetsgräns över 90 km/h, eller som är motorväg/motortrafikled, klassas som direkt olämpliga.
-6. **Blandtrafik med trafikdata (B1–B4)** — för vägar med känd ÅDT (årsdygnstrafik) avgörs klassen av kombinationen hastighetsgräns och trafikmängd — ju lägre hastighet och trafik, desto bättre klass (B1 bäst).
-7. **Blandtrafik utan trafikdata (B1–B4)** — när ÅDT saknas används istället väglagstyp (t.ex. småväg, parkeringsväg, huvudgata) tillsammans med hastighetsgräns för att uppskatta motsvarande klass.
-8. **Enskilda vägar (B1)** — vägar med enskilt huvudmannaskap klassas schablonmässigt som B1.
+6. **Enskilda vägar (B1)** — vägar med enskilt huvudmannaskap, belagda och med hastighetsgräns under 70 km/h, klassas som B1 **oavsett** vad övriga regler annars skulle ge (se notering nedan).
+7. **Blandtrafik med trafikdata (B1–B4)** — för vägar med känd ÅDT (årsdygnstrafik) avgörs klassen av kombinationen hastighetsgräns och trafikmängd — ju lägre hastighet och trafik, desto bättre klass (B1 bäst).
+8. **Blandtrafik utan trafikdata (B1–B4)** — när ÅDT saknas används istället väglagstyp (t.ex. småväg, parkeringsväg, huvudgata) tillsammans med hastighetsgräns för att uppskatta motsvarande klass.
 9. **Grusvägar (G1–G2)** — vägar med grusbeläggning delas in efter huvudmannaskap: statligt/kommunalt underhåll ger G1, övriga G2.
 
 Utöver huvudklassningen appliceras ett par kompletterande regler: smala B2-vägar (under 4 meter) nedgraderas till B1, och huvudgator i mindre tätorter (färre än 10 000 invånare) nedgraderas från B3 till B2.
+
+::: {.callout-important}
+## Enskild väg som override, inte bara luckfyllning
+Till skillnad från övriga regler i kedjan (som bara sätter en klass om segmentet ännu inte klassats) fungerar "enskild väg → B1" som ett **override**: den kan skriva över en redan satt B1–B4-klass, även från senare regler i kedjan (t.ex. huvudgategolvet i regel 8). Anledningen är källmetodikens egen tabell (Trafikverkets underlag för hastighet/vägtyp), som anger "är vägen enskild → B1" som en fristående, överordnad regel — inte begränsad till fallet "enskild och saknar ÅDT".
+
+Ett hastighetstak (< 70 km/h) har lagts till som en medveten avvikelse från källmetodikens bokstav: utan taket skulle t.ex. en enskild skogsbilväg med hög skyltad hastighet (men i praktiken sällan trafikerad i den hastigheten) automatiskt hamna i den mest cykelvänliga kategorin, vilket inte var avsikten. Vägar som är enskilda men har hastighetsgräns ≥ 70 faller istället igenom till den ordinarie ÅDT-/vägslagsbaserade bedömningen (regel 7–8).
+
+Overriden gäller bara belagda vägar (`slitlager_slitlagertyp == 1`) — grusvägar hanteras alltid separat i den avslutande grusvägslogiken (regel 9), oavsett huvudmannaskap.
+:::
 
 ::: {.callout-note}
 ## Förenklad klassvariabel
@@ -171,6 +180,42 @@ Vilka gränser som beräknas styrs av `har_skolform`:
 
 Varje kombination av fordon, gräns och (för skola) skolform blir en egen kolumn, t.ex. `pass_cykel_30_arbete` eller `pass_elcykel_3000_grundskolan`. Aggregeringen använder `DISTINCT (lank_id, obs_id)` så att en relation räknas högst en gång per länk, även om rutten råkar passera flera ursprungliga vägsegment som hör till samma `lank_id`.
 
+# Röjandegranskning {#rojandegranskning}
+
+Innan resultatet visas i karta/app behöver enskilda väglänkar med väldigt få passager döljas — annars riskerar en synlig, låg siffra på en isolerad väglänk att avslöja ungefär vilket hushåll den gäller. Det här är ett sekretessteg, inte en beräkningsmässig justering.
+
+## Varför inte bara ta bort alla länkar under en volymgräns
+
+Ett enkelt alternativ — dölj alla länkar med `pass_val` under en tröskel, oavsett var i nätet de ligger — skulle vara missvisande. Cykelpotential ska visa var förutsättningarna för cykling finns, och i glesbefolkade delar av länet är låga passagetal på i övrigt normalt fungerande, väl anslutna vägar en del av verkligheten, inte ett sekretessproblem. Att döljas oavsett läge skulle systematiskt underrepresentera cykelpotential i glesbygd.
+
+Den risk som faktiskt behöver hanteras är **identifierbarhet**, inte lågt värde i sig: en länk är bara känslig om den är den enda vägen till/från en liten grupp — dvs. en isolerad återvändsgränd eller liknande — inte för att den råkar ha ett lågt tal.
+
+## Metod: iterativ ände-trimning i den aktiva delgrafen
+
+`rojandegranska_lankar()` döljer en länk om den, **inom den delgraf av länkar som faktiskt bär trafik för just den kolumnen** (`pass_val > 0`), är en ändlänk (en av dess noder saknar andra aktiva anslutningar) **och** har `pass_val` under tröskelvärdet (standard 10).
+
+Att gradberäkningen görs på den **aktiva** delgrafen — inte hela den fysiska vägtopologin — är en medveten avvägning: en fysisk sidoväg som råkar finnas där men har `pass_val = 0` för just den aktuella kombinationen (t.ex. en annan avståndsgräns) ska inte kunna "rädda" en länk från att räknas som ändlänk. Annars skulle en länk kunna vara döljningskandidat för en tidsgräns men inte en annan, trots att den fysiska situationen är identisk — vilket den faktiskt inte alltid är, eftersom olika gränser aktiverar olika delar av nätet.
+
+Döljningen är **iterativ**: när en ändlänk döljs minskar graden på dess kvarvarande granne. Om den grannen då själv blir en ändlänk med värde under tröskeln, döljs den också — och så vidare, bakåt genom kedjan, tills en länk med tillräckligt högt värde nås. Den länken förblir synlig och blir "ankarpunkten" där den lilla, potentiellt identifierbara grenen ansluter till resten av det välanvända nätverket.
+
+::: {.callout-note}
+## Skillnaden mellan fysisk och funktionell isolering
+En vanlig missuppfattning är att en länk bara kan döljas om den är en återvändsgränd i hela vägnätets fysiska bemärkelse. Så är det inte: en länk som fysiskt har flera anslutningar (grad ≥ 2 i hela nätet) kan ändå räknas som ändlänk i den aktiva delgrafen, om alla utom en av dess grannar råkar sakna trafik för just den aktuella kombinationen. Det gör metoden känsligare för verklig identifierbarhetsrisk än en ren topologisk ände-detektion hade varit.
+:::
+
+## Sekundär suppression
+
+Att bara dölja den identifierade ändlänken räcker inte alltid — om en angränsande, i övrigt synlig länk skulle avslöja det dolda värdet genom enkel flödesbalansering (räkna baklänges utifrån grannlänkarnas summerade värden), döljs även den. Det är samma princip som statistiska myndigheter använder vid cellsuppression i tabelldata.
+
+## Var i pipelinen detta körs
+
+`rojandegranska_lankar()` körs **per kombination** (samma fyra som `kor_ruttberakning()`), direkt efter passageberäkningen och innan `skapa_cykelpotential_vy()`. Resultatet sparas som `dold_<pass_kolumn>`-flaggor i samma tabell som `pass_*`-kolumnerna (`tabell_rutt_antal`).
+
+::: {.callout-warning}
+## dold_*-kolumnerna måste nå fram till cykelpotential_vy
+`skapa_cykelpotential_vy()` måste inkludera `dold_*`-kolumnerna i sin `SELECT`-lista för att röjandegranskningen ska få effekt i appen — annars beräknas flaggorna korrekt i källtabellerna men filtreras aldrig bort på kartan. Kontrollera vid felsökning att `names(alla_rutter)` (läst från `cykelpotential_vy`) faktiskt innehåller `dold_*`-kolumner, inte bara `pass_*`.
+:::
+
 # Resultatvyer {#resultatvyer}
 
 När passagetalen är beräknade kopplas de ihop med det cykelklassade nätets geometri i färdiga databasvyer, som används direkt i karta och Shinyapp.
@@ -185,91 +230,197 @@ När passagetalen är beräknade kopplas de ihop med det cykelklassade nätets g
 
 ## Kombinerad vy för hela appen
 
-`skapa_cykelpotential_vy()` slår ihop **alla fyra** kombinationer (arbete/skola × nvdb/cykelklass) i en enda materialiserad vy, med passagekolumnerna namngivna per källa (t.ex. `pass_cykel_30_arbete_nvdb` respektive `..._cykelklass`). Vyn byggs med `LEFT JOIN` från hela vägnätet mot samtliga fyra passagetabeller, och inkluderar bara segment som har **minst en** beräknad passage i någon av de fyra kombinationerna (`WHERE ... <> 0`). Det här är den vy som Shinyappen och kartan i slutänden läser ifrån.
+`skapa_cykelpotential_vy()` slår ihop **alla fyra** kombinationer (arbete/skola × nvdb/cykelklass) i en enda materialiserad vy, med passagekolumnerna namngivna per källa (t.ex. `pass_cykel_30_arbete_nvdb` respektive `..._cykelklass`). Motsvarande `dold_*`-kolumner (se [Röjandegranskning](#rojandegranskning)) följer med på samma sätt, med samma namngivning. Vyn byggs med `LEFT JOIN` från hela vägnätet mot samtliga fyra passagetabeller, och inkluderar bara segment som har **minst en** beräknad passage i någon av de fyra kombinationerna (`WHERE ... <> 0`).
+
+# GeoJSON-cache för Shinyappen {#geojson-cache}
+
+`cykelpotential_vy` är den sista databastabellen i pipelinen, men Shinyappen läser inte från den direkt vid varje användarinteraktion — det skulle innebära att filtrering, röjandegranskningskontroll, färgsättning och GeoJSON-konvertering (en relativt tung operation för tiotusentals vägsegment) upprepades för **varje** flikbyte, för **varje** användare. Istället förberäknas allt en gång per (flik × filterval)-kombination, av `generera_geojson_cache()`, och sparas i en egen cache-tabell som appen sedan bara läser rakt av.
+
+## Vad funktionen gör
+
+För var och en av de 24 kombinationerna (8 flikar × upp till 3 filterval per flik):
+
+1. Filtrerar `cykelpotential_vy` till de rader som har `pass_val > 0` för just den kombinationen.
+2. Filtrerar bort rader där motsvarande `dold_*`-flagga är `TRUE` (röjandegranskningen appliceras här, en gång, istället för i appen vid varje sidladdning).
+3. Färgsätter varje segment med `colorNumeric()` (samma viridis-plasma-palett som används genomgående), baserat på den kombinationens egna min/max-värden.
+4. Konverterar till GeoJSON-text (`geojsonsf::sf_geojson()`) och bakar in stilinformationen (färg, linjebredd) direkt i varje features `properties.style` — det gör att appen kan skicka texten rakt vidare till Leaflet utan att själv behöva sätta stil per segment.
+5. Sparar GeoJSON-texten, en kommaseparerad lista över `lank_id` i samma ordning som featurena (används av appen för att koppla klick på kartan till rätt vägsegment), samt kombinationens min/max-värde (används för att bygga en legend som faktiskt matchar de visade färgerna) i `app_cache.geojson_cache`.
+
+## Varför en separat cache-tabell och inte bara en till vy
+
+`app_cache`-schemat är medvetet skilt från `ruttanalys_cykel`, av två skäl: dels är innehållet där rent app-facing (ingen analytisk användning), vilket gör det naturligt att ge Shinyappens databasanvändare läsrättigheter bara till `app_cache` snarare än till hela analyspipelinens mellanresultat. Dels går det att tömma och bygga om `app_cache` helt fristående, utan att röra resten av pipelinens tabeller.
+
+::: {.callout-important}
+## Starta om appen efter körning
+`Cykelklassa_nvdb()` tilldelar `lank_id` sekventiellt (`1:nrow(...)`) varje gång den körs — värdet är alltså **inte** stabilt mellan körningar. Det betyder att efter en fullständig pipelinekörning måste både `app_cache.geojson_cache` (byggd av `generera_geojson_cache()`) **och** Shinyappens egen inlästa kopia av `cykelpotential_vy` (laddad i appens `global.R` vid processtart) komma från **samma** körning — annars matchar inte `lank_id` mellan de två, och klick på kartan slutar fungera (Shiny hittar ingen matchande rad i `alla_rutter` för det `lank_id` som skickas från den nyare GeoJSON-cachen).
+
+Kör därför alltid `generera_geojson_cache()` som sista steg i **samma** pipelinekörning som byggde `cykelpotential_vy`, och starta om Shinyappens R-process omedelbart efteråt.
+:::
 
 # Kör hela pipelinen {#kor-pipelinen}
 
-Nedan är ett exempel på hur samtliga funktioner ovan sätts ihop till en komplett körning, från databaskoppling till att kopplingen stängs. Numreringen i kommentarerna följer samma ordning som funktionerna beskrivs i under [Ruttanalys och passageberäkning](#ruttanalys) och [Resultatvyer](#resultatvyer).
+Hela processen — från cykelklassning till en färdig GeoJSON-cache för Shinyappen — är samlad i en enda toppfil, **`kor_hela_pipelinen.R`**. Den innehåller ingen egen funktionslogik, bara körordningen: den `source()`:ar `func_cykelpotential.R` (cykelklassningen) och `pgrouting_cykelklass_funktioner_ny.R` (resten av pipeline-funktionerna) högst upp, och stegar sedan igenom samtliga steg i tur och ordning. Filen är byggd för att köras **manuellt, blockvis** (markera och kör, t.ex. Ctrl+Enter/Cmd+Enter i RStudio) — inte som ett script i ett svep — eftersom steg 1–8 behöver köras en gång per kombination av `har_skolform`/`rutt_cykelklass`, med de två variablerna ändrade för hand mellan varje varv.
 
-I exemplet körs ruttanalysen för arbetspendling (`har_skolform = FALSE`) på det cykelklassade nätet (`rutt_cykelklass = TRUE`).
+::: {.callout-note}
+## Filstruktur
+- **`func_cykelpotential.R`** — `Cykelklassa_nvdb()`, klassningslogiken (se [Cykelklassa vägnätet](#cykelklassa-vagnatet)).
+- **`pgrouting_cykelklass_funktioner_ny.R`** — samtliga pipeline-funktioner: `namn_scheman_och_tabeller()` t.o.m. `generera_geojson_cache()`.
+- **`kor_hela_pipelinen.R`** — toppfilen. Sourcear de två ovan och stegar igenom hela processen. Det här är filen man faktiskt öppnar och kör (eller stegar igenom rad för rad) för att bygga om resultatet från grunden.
+:::
+
+Nedan är innehållet i `kor_hela_pipelinen.R`, uppdelat i steg som följer samma numrering och ordning som funktionerna beskrivs i under [Ruttanalys och passageberäkning](#ruttanalys), [Röjandegranskning](#rojandegranskning) och [GeoJSON-cache för Shinyappen](#geojson-cache).
+
+## Steg 0: Cykelklassa vägnätet
+
+Körs en gång, oberoende av vilken analystyp/nätverkstyp som sedan analyseras — resultatet (`nvdb_cykel.nvdb_cykelklassat`) återanvänds av samtliga fyra kombinationer i nästa steg.
 
 ```r
-# Använd uppkoppling db
+source("func_cykelpotential.R")
+source("pgrouting_cykelklass_funktioner_ny.R")
+
+cykelnat <- Cykelklassa_nvdb(
+  nvdb_path         = "dala_med_grannlan",
+  geografiskt_urval = "20",
+  buffer_grans      = 5000
+)
+
+postgis_databas_skriv_med_metadata(
+  con                    = uppkoppling_adm("ruttanalyser"),
+  inlas_sf               = cykelnat %>% sf::st_zm(),
+  schema                 = "nvdb_cykel",
+  tabell                 = "nvdb_cykelklassat",
+  postgistabell_geo_kol  = "geom",
+  postgistabell_id_kol   = NA
+)
+```
+
+## Steg 1–8: Ruttanalys, passageberäkning och röjandegranskning
+
+Körs **manuellt, fyra gånger** — en gång per kombination av analystyp (`har_skolform`) och nätverkstyp (`rutt_cykelklass`). Sätt de två variablerna under "Sätt villkor", markera och kör hela blocket steg 1–8, ändra sedan variablerna och kör om, tills samtliga fyra kombinationer är körda:
+
+```r
 con <- uppkoppling_adm("ruttanalyser")
 
-# ==== Sätt villkor =====
-har_skolform <- FALSE      # FALSE om arbetspendling ska användas
-rutt_cykelklass <- TRUE    # FALSE om hela nvdb ska användas oberoende av vägklass
+# ==== Sätt villkor - ÄNDRA DESSA TVÅ FÖR VARJE KOMBINATION ====
+har_skolform    <- FALSE   # FALSE = arbetspendling, TRUE = skolpendling
+rutt_cykelklass <- TRUE    # TRUE = cykelklassat nät, FALSE = hela nvdb
 
 # ==== Sätt namn på scheman och tabeller ====
 namn_scheman_och_tabeller(har_skolform = har_skolform, rutt_cykelklass = rutt_cykelklass)
 
 # ==== 1. Läs in och förbered NVDB ====
-lasa_nvdb(con,
-          schema_nvdb = schema_nvdb,
-          tabell_nvdb = tabell_nvdb,
-          tabell_nvdb_tmp = tabell_nvdb_tmp,
-          rutt_cykelklass = rutt_cykelklass,
+lasa_nvdb(con, schema_nvdb = schema_nvdb, tabell_nvdb = tabell_nvdb,
+          tabell_nvdb_tmp = tabell_nvdb_tmp, rutt_cykelklass = rutt_cykelklass,
           har_skolform = har_skolform)
 
-# ==== 2. Skapa topologi till pgRouting ======
+# ==== 2. Skapa topologi till pgRouting ====
 skapa_topologi(con, schema_nvdb, tabell_nvdb_tmp)
 
 # ==== 3. Läs in och förbered pendlingstabell samt annan data ====
 forbered_pendling(con, con_pendling = uppkoppling_adm("sekretess"),
-                  schema_pendling = "rutor",
-                  schema_relation = schema_relation,
-                  buffer = 5000,
-                  har_skolform = har_skolform)
-
-# ==== Ruttanalysen =============================================
+                  schema_pendling = "rutor", schema_relation = schema_relation,
+                  buffer = 5000, har_skolform = har_skolform)
 
 # ==== 4. Sätt hastigheter ====
-# Baserat på om det är arbets- eller skolpendling som analyseras
 satt_restidsparametrar(con, schema_nvdb, tabell_nvdb_tmp, har_skolform = har_skolform)
 
-# ==== 5. Koppla närmaste topologipunkt till start- och slutpunkter i relationstabellen ====
-koppla_topo_till_punkter(con, schema_relation, pend_tabell,
-                         schema_nvdb, tabell_nvdb_tmp)
+# ==== 5. Koppla närmaste topologipunkt till start-/slutpunkter ====
+koppla_topo_till_punkter(con, schema_relation, pend_tabell, schema_nvdb, tabell_nvdb_tmp)
 
 # ==== 6. Skapa rutter med avstånd mellan start- och målrutor ====
-berakna_rutter_batch(con,
-                     schema_relation, pend_tabell,
-                     schema_nvdb, tabell_nvdb_tmp,
+berakna_rutter_batch(con, schema_relation, pend_tabell, schema_nvdb, tabell_nvdb_tmp,
                      tabell_rutt_avst, tabell_rutt_edges,
-                     har_skolform = har_skolform,
-                     batch_size = 1000)
+                     har_skolform = har_skolform, batch_size = 1000)
 
 # ==== 7. Skapa antal resande per segment (Dijkstra-passager) ====
-kor_ruttberakning(con,
-                  schema_relation,
-                  tabell_rutt_avst, tabell_rutt_edges, tabell_rutt_antal,
+kor_ruttberakning(con, schema_relation, tabell_rutt_avst, tabell_rutt_edges, tabell_rutt_antal,
                   schema_nvdb, tabell_nvdb,
-                  tidsgranser = c(15, 30, 45),
-                  avstandsgranser = c(2000, 3000, 5000),
+                  tidsgranser = c(15, 30, 45), avstandsgranser = c(2000, 3000, 5000),
                   har_skolform = har_skolform)
 
-# ==== 8. Skapa materialiserad vy med allt resultat ====
+# ==== 8. Röjandegranska länkarna som precis beräknats ====
+rojandegranska_lankar(con, schema_relation, tabell_rutt_antal, schema_nvdb, tabell_nvdb_tmp,
+                      har_skolform = har_skolform,
+                      tidsgranser = c(15, 30, 45), avstandsgranser = c(2000, 3000, 5000),
+                      tröskel = 10)
+```
+
+::: {.callout-warning}
+## Kör om steg 1–8 för alla fyra kombinationer innan steg 9
+Ovan visas ett enskilt varv (`har_skolform = FALSE`, `rutt_cykelklass = TRUE`). Gå tillbaka till "Sätt villkor", byt de två variablerna, och kör om hela blocket — totalt fyra gånger (arbete/cykelklassat, arbete/nvdb, skola/cykelklassat, skola/nvdb) — innan du går vidare till steg 9. `skapa_cykelpotential_vy()` i nästa steg behöver samtliga fyra `rutt_antal_*`-tabeller för att kunna bygga den kombinerade vyn.
+:::
+
+::: {.callout-tip}
+## Alternativ: kör alla fyra kombinationer automatiskt i en loop
+Om du hellre kör hela steg 1–8 för samtliga fyra kombinationer i ett svep, utan att manuellt byta variabler mellan varje varv:
+```r
+kombinationer <- list(
+  list(har_skolform = FALSE, rutt_cykelklass = TRUE),
+  list(har_skolform = FALSE, rutt_cykelklass = FALSE),
+  list(har_skolform = TRUE,  rutt_cykelklass = TRUE),
+  list(har_skolform = TRUE,  rutt_cykelklass = FALSE)
+)
+
+for (k in kombinationer) {
+  har_skolform    <- k$har_skolform
+  rutt_cykelklass <- k$rutt_cykelklass
+
+  namn_scheman_och_tabeller(har_skolform = har_skolform, rutt_cykelklass = rutt_cykelklass)
+  lasa_nvdb(con, schema_nvdb, tabell_nvdb, tabell_nvdb_tmp, rutt_cykelklass, har_skolform)
+  skapa_topologi(con, schema_nvdb, tabell_nvdb_tmp)
+  forbered_pendling(con, con_pendling = uppkoppling_adm("sekretess"),
+                    schema_pendling = "rutor", schema_relation = schema_relation,
+                    buffer = 5000, har_skolform = har_skolform)
+  satt_restidsparametrar(con, schema_nvdb, tabell_nvdb_tmp, har_skolform = har_skolform)
+  koppla_topo_till_punkter(con, schema_relation, pend_tabell, schema_nvdb, tabell_nvdb_tmp)
+  berakna_rutter_batch(con, schema_relation, pend_tabell, schema_nvdb, tabell_nvdb_tmp,
+                       tabell_rutt_avst, tabell_rutt_edges,
+                       har_skolform = har_skolform, batch_size = 1000)
+  kor_ruttberakning(con, schema_relation, tabell_rutt_avst, tabell_rutt_edges, tabell_rutt_antal,
+                    schema_nvdb, tabell_nvdb,
+                    tidsgranser = c(15, 30, 45), avstandsgranser = c(2000, 3000, 5000),
+                    har_skolform = har_skolform)
+  rojandegranska_lankar(con, schema_relation, tabell_rutt_antal, schema_nvdb, tabell_nvdb_tmp,
+                        har_skolform = har_skolform,
+                        tidsgranser = c(15, 30, 45), avstandsgranser = c(2000, 3000, 5000),
+                        tröskel = 10)
+}
+```
+Praktiskt när hela pipelinen ska köras om oövervakat (t.ex. schemalagt), men ger sämre insyn i vad som händer mellan varje kombination jämfört med att stega igenom manuellt.
+:::
+
+## Steg 9–11: Kombinerad vy, GeoJSON-cache och avslut
+
+Körs **en gång**, efter att samtliga fyra kombinationer ovan är klara:
+
+```r
+# ==== 9. Skapa materialiserad vy med allt resultat ====
 skapa_cykelpotential_vy(con,
-                        mv_schema = "ruttanalys_cykel",
-                        mv_namn = "cykelpotential_vy",
-                        schema_nvdb_karta = "nvdb_cykel",
-                        tabell_nvdb_karta = "nvdb_cykelklassat",
+                        mv_schema = "ruttanalys_cykel", mv_namn = "cykelpotential_vy",
+                        schema_nvdb_karta = "nvdb_cykel", tabell_nvdb_karta = "nvdb_cykelklassat",
                         schema_relation = "ruttanalys_cykel",
                         tabell_arbete_nvdb = "rutt_antal_arbete_nvdb",
                         tabell_arbete_cykelklass = "rutt_antal_arbete_cykelklass",
                         tabell_skola_nvdb = "rutt_antal_skola_nvdb",
                         tabell_skola_cykelklass = "rutt_antal_skola_cykelklass",
-                        extra_nvdb_kolumner = character(0),
-                        skriv_over = TRUE)
+                        extra_nvdb_kolumner = character(0), skriv_over = TRUE)
 
-# ==== 9. Stäng kopplingen ====
+# ==== 10. Generera GeoJSON-cache för Shinyappen ====
+# tabb_konfig ska vara identisk med den i Shinyappens server.R
+generera_geojson_cache(con, tabb_konfig = tabb_konfig)
+
+# ==== 11. Stäng kopplingen ====
 dbDisconnect(con)
 ```
 
+::: {.callout-important}
+## Starta om appen efter steg 10
+Se [GeoJSON-cache för Shinyappen](#geojson-cache) — `lank_id` är inte stabil mellan körningar av `Cykelklassa_nvdb()`, så Shinyappens R-process måste startas om efter varje fullständig körning av `kor_hela_pipelinen.R`, annars riskerar appens `alla_rutter` och den nybyggda `app_cache.geojson_cache` att bli osynkade.
+:::
+
 ::: {.callout-tip}
 ## Varför körs inte `skapa_ruttanalys_vy()` här?
-`skapa_ruttanalys_vy()` skapar en fristående tabell för **en** kombination av nät och analystyp, medan `skapa_cykelpotential_vy()` i steg 8 bygger den kombinerade vyn med samtliga fyra kombinationer i ett svep. I en normal körning av hela pipelinen räcker det därför med steg 8 — `skapa_ruttanalys_vy()` är i första hand användbar om man vill titta på eller felsöka en enskild kombination för sig.
+`skapa_ruttanalys_vy()` skapar en fristående tabell för **en** kombination av nät och analystyp, medan `skapa_cykelpotential_vy()` i steg 9 bygger den kombinerade vyn med samtliga fyra kombinationer i ett svep. I en normal körning av hela pipelinen räcker det därför med steg 9 — `skapa_ruttanalys_vy()` är i första hand användbar om man vill titta på eller felsöka en enskild kombination för sig.
 :::
 
 # Referens: funktioner i pipelinen {#referens}
@@ -284,6 +435,9 @@ dbDisconnect(con)
 | `koppla_topo_till_punkter()` | Snappar start-/slutpunkter till närmaste nod |
 | `berakna_rutter_batch()` | Kör Dijkstra batchvis, en rad per relation |
 | `kor_ruttberakning()` | Aggregerar antal passager per `lank_id` |
+| `bygg_pass_specar()` | Bygger listan över `pass_*`-kolumnnamn, delas mellan `kor_ruttberakning()` och `rojandegranska_lankar()` |
+| `rojandegranska_lankar()` | Döljer identifierbara väglänkar iterativt (se [Röjandegranskning](#rojandegranskning)) |
 | `hamta_geom_cast()` | Löser geometrityp/SRID inför QGIS |
 | `skapa_ruttanalys_vy()` | Bygger enskild resultattabell (nät × analystyp) |
-| `skapa_cykelpotential_vy()` | Bygger kombinerad materialiserad vy för appen |
+| `skapa_cykelpotential_vy()` | Bygger kombinerad materialiserad vy för appen, inklusive `dold_*`-flaggor |
+| `generera_geojson_cache()` | Förberäknar GeoJSON per flik/filter till `app_cache.geojson_cache` (se [GeoJSON-cache](#geojson-cache)) |
