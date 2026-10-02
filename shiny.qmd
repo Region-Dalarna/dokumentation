@@ -441,6 +441,21 @@ renv::install("paketnamn@1.2.3")    # specifik version
 
 Detta rör bara appens *lokala* bibliotek. `renv.lock` är ännu orörd, så inget är publicerat.
 
+:::{.callout-note}
+#### Installera ett eget internt paket från GitHub (t.ex. rdshinyappar, rdverktyg)
+
+Våra interna R-paket ligger inte i egna repon utan som undermappar i monorepot **rdpaket** (`packages/rd`, `packages/rdshinyappar`, `packages/rdverktyg` osv.). `renv::install()` behöver då hela sökvägen till paketmappen, inte bara `org/repo`:
+
+```r
+renv::install("Region-Dalarna/rdpaket/packages/rdshinyappar")
+renv::install("Region-Dalarna/rdpaket/packages/rdverktyg")
+```
+
+Är repot privat krävs samma GitHub-autentisering som för `github_commit_push()` m.fl. — en giltig token i `keyring` under service-namnet `github_token` (se avsnittet *Git-konfiguration på nya datorer* ovan). renv hittar den automatiskt via samma mekanism som `usethis`/`gert` använder, så inget extra behöver sättas upp om du redan konfigurerat det för de vanliga GitHub-funktionerna.
+
+Resten av flödet är identiskt med ett CRAN-paket: testa lokalt, `renv::snapshot()` när du är nöjd, commit + publicera. renv skriver då in GitHub-källan (repo, undermapp, commit-sha) i `renv.lock` istället för en CRAN-repository-post, så att exakt samma commit återskapas vid nästa `renv::restore()` — även på servern vid deploy.
+:::
+
 **3. Använd paketet i koden och testa appen lokalt:**
 
 ```r
