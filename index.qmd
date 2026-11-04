@@ -1,6 +1,6 @@
 ---
 title: "Dokumentation – Samhällsanalys"
-#description: "Teknisk dokumentation för Samhällsanalys, Region Dalarna"
+description: "Teknisk dokumentation för Samhällsanalys, Region Dalarna - guider för publicering, databaser, kartor och återanvändbara R-funktioner."
 listing:
   contents: "*.qmd"
   type: table
