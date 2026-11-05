@@ -102,7 +102,7 @@ library(rdshinyappar)
 ```
 (installeras en gång per app, se [Installera ett eget internt paket från GitHub](#installera-internt-paket) nedan — nya appar som skapas med `shinyapp_skapa_med_github_repo()` får den installerad automatiskt, så länge standardparametern `telemetri = TRUE` inte stängs av).
 
-### Git-konfiguration på nya datorer
+### Git-konfiguration på nya datorer{#git-konfiguration-pa-nya-datorer}
 
 På en ny dator (eller en dator där du inte tidigare har jobbat med git från R) behöver `user.name` och `user.email` vara satta i den globala git-konfigurationen. Annars kan `rddeploy::shinyapp_publicera()` failera vid sin `git pull` av arbetsbranchen (om den inte blir en fast-forward och git behöver skapa en merge-commit) med felmeddelandet:
 

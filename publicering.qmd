@@ -67,7 +67,7 @@ En interaktiv app. Se den separata Shiny-dokumentationen för det fullständiga 
 Flera `.qmd`-sidor som hör ihop och renderas *på servern* vid varje deploy. Skiljer sig från en enskild webbrapport genom att renderingen sker server-side. Använd flödet i [Dokumentationsportaler](#dokumentationsportaler).
 :::
 
-## Publicera till publik eller intern server
+## Publicera till publik eller intern server{#publicera-till-publik-eller-intern-server}
 
 **Webbrapporter** och **Shinyappar** använder samma grundprincip för att välja server: en **branch-modell** där `main`/`master` är din arbetsbranch, och en push till `publicera-publik` respektive `publicera-intern` triggar deploy till rätt server. Vilken self-hosted runner som plockar upp jobbet avgörs automatiskt av branchnamnet.
 
