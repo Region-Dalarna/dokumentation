@@ -55,7 +55,7 @@ Som vanligt användare behöver du **inte** läsa detta avsnitt — Shiny-server
 
 
 # Shinyappar{#shinyappar}
-Här beskrivs hur man skapar, reviderar och publicerar Shinyappar. Arbetet sker lokalt på regiondatorn: man pullar ner repot för appen, gör sina ändringar och commit:ar och pushar till GitHub. Själva publiceringen till Shiny-servern sköts av GitHub Actions och triggas av funktionen `rddeploy::shinyapp_publicera()` — du behöver alltså aldrig logga in på servern i det vardagliga arbetet. Detta gäller den publika Shiny-servern i DMZ (åtkomlig externt). Arbetsprocessen för den interna Shiny-servern är inte klar ännu.
+Här beskrivs hur man skapar, reviderar och publicerar Shinyappar. Arbetet sker lokalt på regiondatorn: man pullar ner repot för appen, gör sina ändringar och commit:ar och pushar till GitHub. Själva publiceringen till Shiny-servern sköts av GitHub Actions och triggas av funktionen `rddeploy::shinyapp_publicera()` — du behöver alltså aldrig logga in på servern i det vardagliga arbetet, vare sig det gäller den publika Shiny-servern i DMZ (åtkomlig externt) eller den interna.
 
 ## TL;DR
 
