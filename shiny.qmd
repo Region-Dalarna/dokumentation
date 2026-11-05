@@ -353,6 +353,11 @@ Anledningen är viktig att känna till: en `app.R` i roten som kör `runApp('app
 
 Bredvid appfilerna ligger renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) som styr paketversioner — se avsnittet [renv-miljö på Shiny-servern](#renv-shinyserver).
 
+:::{.callout-note}
+## Undantag: appar importerade från ett externt repo
+En app som är hämtad från ett externt repo (t.ex. via `git subtree`, som NCD-SIM är från FoHM) kan ha kvar sin ursprungliga struktur med appfilerna i en `app/`-undermapp, om vi inte vill eller bör skriva om den vid import. I de fallen pekar repots `deploy.yml` på undermappen istället för repo-roten (`TEMP_DIR="${GITHUB_WORKSPACE}/app"`), vilket flattar strukturen vid deploy så att servern ändå ser appfilerna direkt i sin mapp. Det är en medveten avvikelse för just den typen av app, inte ett tecken på att strukturen ovan inte gäller.
+:::
+
 #### global.R
 
 * Laddar paket: `shiny`, `shinyjs`, `shinyWidgets`, `DT`, `ggiraph`, `dplyr`, `ggplot2`
@@ -1458,11 +1463,23 @@ Innehåll:
 set -euo pipefail
 APP_NAME="${1:-}"
 SOURCE_DIR="${2:-}"
-if [[ -z "$APP_NAME" || -z "$SOURCE_DIR" ]]; then
-  echo "Usage: $0 <app_name> <source_dir>" >&2
+if [[ -z "$APP_NAME" ]]; then
+  echo "ERROR: Missing app name"
+  exit 1
+fi
+if [[ -z "$SOURCE_DIR" ]]; then
+  echo "ERROR: Missing source directory"
+  exit 1
+fi
+if [[ ! -d "$SOURCE_DIR" ]]; then
+  echo "ERROR: Source directory does not exist: $SOURCE_DIR"
   exit 1
 fi
 TARGET_DIR="/srv/shiny-server/$APP_NAME"
+if [[ "$TARGET_DIR" == "/srv/shiny-server/" ]]; then
+  echo "ERROR: Invalid target directory (empty app name)"
+  exit 1
+fi
 mkdir -p "$TARGET_DIR"
 
 # Kopiera repo-roten till servern. Strukturen är utplattad: appfilerna ligger
@@ -1471,6 +1488,8 @@ mkdir -p "$TARGET_DIR"
 # behövs lokalt/i CI.
 rsync -a --delete \
   --exclude='app_cache/' \
+  --exclude='UI/' \
+  --exclude='www/nedladdning/' \
   --exclude='.git/' \
   --exclude='.github/' \
   --exclude='.Rproj.user/' \
@@ -1482,10 +1501,10 @@ rsync -a --delete \
   --exclude='_publicering_till_server.yml' \
   "$SOURCE_DIR"/ "$TARGET_DIR"/
 
-# Grundläggande grupp/rättigheter (app_cache undantas — ägs av shiny).
-find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -exec chgrp shiny {} +
-find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type d -exec chmod 2775 {} +
-find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type f -exec chmod 664 {} +
+# Grundläggande grupp/rättigheter (runtime-data-mapparna nedan undantas).
+find "$TARGET_DIR" \( -path "$TARGET_DIR/app_cache" -o -path "$TARGET_DIR/UI" -o -path "$TARGET_DIR/www/nedladdning" \) -prune -o -exec chgrp shiny {} +
+find "$TARGET_DIR" \( -path "$TARGET_DIR/app_cache" -o -path "$TARGET_DIR/UI" -o -path "$TARGET_DIR/www/nedladdning" \) -prune -o -type d -exec chmod 2775 {} +
+find "$TARGET_DIR" \( -path "$TARGET_DIR/app_cache" -o -path "$TARGET_DIR/UI" -o -path "$TARGET_DIR/www/nedladdning" \) -prune -o -type f -exec chmod 664 {} +
 
 # Om appen har renv: återställ paketmiljön från renv.lock.
 if [[ -f "$TARGET_DIR/renv.lock" && -f "$TARGET_DIR/renv/activate.R" ]]; then
@@ -1494,9 +1513,9 @@ if [[ -f "$TARGET_DIR/renv.lock" && -f "$TARGET_DIR/renv/activate.R" ]]; then
   Rscript -e 'if (!requireNamespace("renv", quietly = TRUE)) install.packages("renv", repos = "https://cloud.r-project.org"); renv::restore(project = ".", prompt = FALSE)'
 
   # renv::restore() kan skapa nya filer, så sätt rättigheter igen.
-  find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -exec chgrp shiny {} +
-  find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type d -exec chmod 2775 {} +
-  find "$TARGET_DIR" -path "$TARGET_DIR/app_cache" -prune -o -type f -exec chmod 664 {} +
+  find "$TARGET_DIR" \( -path "$TARGET_DIR/app_cache" -o -path "$TARGET_DIR/UI" -o -path "$TARGET_DIR/www/nedladdning" \) -prune -o -exec chgrp shiny {} +
+  find "$TARGET_DIR" \( -path "$TARGET_DIR/app_cache" -o -path "$TARGET_DIR/UI" -o -path "$TARGET_DIR/www/nedladdning" \) -prune -o -type d -exec chmod 2775 {} +
+  find "$TARGET_DIR" \( -path "$TARGET_DIR/app_cache" -o -path "$TARGET_DIR/UI" -o -path "$TARGET_DIR/www/nedladdning" \) -prune -o -type f -exec chmod 664 {} +
 
   # Härda den delade renv-cachen så att shiny-användaren kan läsa nybyggda paket.
   # Feltolerant (|| true) eftersom toppmappen kan ägas av root.
@@ -1507,16 +1526,20 @@ if [[ -f "$TARGET_DIR/renv.lock" && -f "$TARGET_DIR/renv/activate.R" ]]; then
     find "$RENV_CACHE" -type f -exec chmod 664 {} + 2>/dev/null || true
   fi
 else
-  echo "No renv.lock found. Skipping renv restore."
+  echo "No renv.lock and renv/activate.R found. Skipping renv restore."
 fi
 echo "Deploy of '$APP_NAME' completed successfully."
 ```
 
 Några saker värda att förstå i skriptet:
 
-* **Undantagen** håller serverns appkatalog ren: `renv/library/` exkluderas så att serverns byggda bibliotek överlever mellan deployer, och ren byggställning (`*.Rproj`, `README.md`, `_dependencies.R`, `_publicering_till_server.yml`) hålls borta eftersom den bara behövs lokalt. `app_cache/` undantas från sync, ägarbyte och chmod — den katalogen ägs av `shiny` (runtime-cache) och får inte röras.
+* **Undantagen** håller serverns appkatalog ren: `renv/library/` exkluderas så att serverns byggda bibliotek överlever mellan deployer, och ren byggställning (`*.Rproj`, `README.md`, `_dependencies.R`, `_publicering_till_server.yml`) hålls borta eftersom den bara behövs lokalt. `app_cache/`, `UI/` och `www/nedladdning/` undantas från sync, ägarbyte och chmod — de innehåller körtidsdata som skapas av `shiny`-användaren (eller, för `www/nedladdning/`, filer en app genererat åt sina besökare, hanterade via Adminportalens "Nedladdning"-flik) och får inte rensas bort eller skrivas över vid en vanlig deploy.
 * **renv-restore** körs bara om appen har en `renv.lock`. Fallbacken för att installera renv pekar på `cloud.r-project.org` (inte PPM, som är blockerat).
 * **Cache-härdningen** efter restore sätter grupp `shiny` och setgid på den delade cachen, så att `shiny`-användaren (som kör appen) alltid kan läsa nybyggda paket. Utan den kan appens symlänkar peka in i en cache som `shiny` inte når, och appen startar inte.
+
+:::{.callout-note}
+Skriptet versionshanteras numera i det delade repot `serverdrift` (inte i varje enskild app) och installeras därifrån vid deploy — se `serverdrift`s README för hur det och övrig delad serverinfrastruktur hänger ihop.
+:::
 
 :::{.callout-note}
 `--exclude` hindrar *nya* filer från att kopieras, men `rsync --delete` städar inte bort filer som redan deployats innan undantaget lades till. Vid övergång från en äldre struktur kan en engångsstädning behövas: `sudo rm` på de kvarvarande byggställnings-filerna i `/srv/shiny-server/<appnamn>/`.

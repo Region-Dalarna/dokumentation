@@ -1,7 +1,7 @@
 ---
 title: "Publicering på webben"
 subtitle: "Hur vi publicerar rapporter, webbsidor med portal och Shinyappar till våra servrar — samt hur landningssidorna fungerar"
-listing-description: "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: statiska webbrapporter, dokumentationsportaler och Shinyappar. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man styr exkluderingar och ikoner."
+listing-description: "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: statiska webbrapporter, dokumentationsportaler och Shinyappar. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man i Adminportalen styr synlighet, ikoner och beskrivningstexter."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -36,9 +36,14 @@ Det här dokumentet är skrivet för två olika roller. Du behöver normalt bara
 Läs avsnittet **[Publicera innehåll](#publicera-innehall)**. Det täcker de tre innehållstyperna och R-funktionerna du använder. Du behöver **inte** läsa förvaltningsavsnittet.
 :::
 
+:::{.callout-tip}
+## 🙈 Du vill dölja något från landningssidan, byta ikon, eller sätta en egen beskrivningstext
+Det gör du i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`, fliken "Appar och rapporter") — inget R-skript eller SSH behövs. Se [Styra vad som visas på landningssidan](#styra-landningssida) för en kort genomgång, och [Förvaltning av landningssidor och infrastruktur](#forvaltning) om du behöver göra samma saker från ett R-skript istället för UI:t (t.ex. för att skripta många ändringar i rad).
+:::
+
 :::{.callout-warning}
-## 🛠️ Du ska förvalta landningssidorna eller servrarnas publiceringsinfrastruktur
-Läs avsnittet **[Förvaltning av landningssidor och infrastruktur](#forvaltning)**. Det är teknisk dokumentation för de få som administrerar servermiljön — serverside-skript, sudoers-regler och hur landningssidegenereringen hänger ihop.
+## 🛠️ Du ska förvalta servrarnas publiceringsinfrastruktur (deploy-skript, runners, nginx)
+Läs avsnittet **[Förvaltning av landningssidor och infrastruktur](#forvaltning)**. Det är teknisk dokumentation för de få som administrerar servermiljön.
 :::
 
 # Publicera innehåll{#publicera-innehall}
@@ -283,91 +288,107 @@ Om du kopierar en äldre `.qmd`-fil kan du stöta på en `setup`-chunk högst up
 
 Varje server har en landningssida på sin grund-URL som automatiskt listar alla publicerade Shinyappar och rapporter, i Region Dalarnas visuella identitet. Du behöver inte göra något särskilt för att hamna där — så snart du publicerat något dyker det upp, eftersom landningssidan regenereras som sista steg i varje deploy (och dessutom nattligt som skyddsnät).
 
-Varje post får automatiskt en titel (hämtad från appens/rapportens egen kod) och en ikon (baserad på namnet). Om du vill styra vad som visas — dölja något eller byta ikon — se förvaltningsavsnittet nedan; de funktionerna är avsedda för dem som förvaltar servrarna.
+Varje post får automatiskt en titel (hämtad från appens/rapportens egen kod, t.ex. `rd-header__title`/`APP_TITEL`) och en ikon (gissad utifrån namnet). Beskrivningstexten på kortet hämtas från `APP_BESKRIVNING` i appens/rapportens kod, om en sådan finns — annars visas ingen beskrivning, bara webbadressen som tooltip.
+
+## Styra vad som visas på landningssidan{#styra-landningssida}
+
+Vill du dölja något, byta ikon, eller sätta/ändra en beskrivningstext — utan att röra appens eller rapportens egen kod — gör du det i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`), fliken **"Appar och rapporter"**. Det täcker tre saker per app/rapport:
+
+- **Synlighet** — klicka direkt på Synlig/Dold i tabellen.
+- **Ikon** — markera en rad, klicka "Koppla/ändra ikon".
+- **Beskrivning** — markera en rad, klicka "Sätt/ändra beskrivning". En beskrivning satt här **vinner alltid** över `APP_BESKRIVNING` i koden — praktiskt för appar importerade från externa repon (t.ex. via `git subtree`) där man inte vill eller kan ändra källkoden.
+
+Ändringarna sparas i en delad databas och landningssidan regenereras automatiskt — direkt för den interna servern, inom några sekunder för den publika (en bakgrundstjänst på den publika servern lyssnar på databasändringar). Inget behöver pushas eller deployas.
 
 # Förvaltning av landningssidor och infrastruktur{#forvaltning}
 
 :::{.callout-warning}
-## Endast för servergadministratörer
-Det här avsnittet är teknisk dokumentation för dig som administrerar och förvaltar Shiny-servrarna. Funktionerna nedan förutsätter uppsatt, nyckelbaserad SSH-anslutning till servrarna (med anslutningsnamnen `shinyserver` och `shinyserver_intern` i din SSH-konfiguration). Se serverkonfigurationsdokumentationen för hur dessa sätts upp. Som vanlig användare behöver du **inte** läsa detta avsnitt.
+## Mestadels för servergadministratörer
+Det här avsnittet är teknisk dokumentation för hur landningssidorna faktiskt hänger ihop under huven. Ska du bara dölja något, byta ikon eller sätta en beskrivning, räcker [Adminportalen](#styra-landningssida) — du behöver **inte** läsa vidare här. Det som följer är för den som felsöker, bygger vidare på systemet, eller vill skripta samma ändringar som Adminportalen gör via R direkt (se *rdadminportal*-paketet nedan).
 :::
 
 ## Hur landningssidan genereras
 
-Landningssidan byggs av skriptet `/usr/local/bin/generera_landningssida.R` på respektive server, anropat via wrappern `/usr/local/bin/generera_landningssida.sh` (som har serverns egna parametrar inbyggda — domän, sökvägar och vilka konfigfiler som gäller). Skriptet:
+Landningssidan byggs av `generera_landningssida()`, en funktion som versionshanteras i det egna repot **`landningssida`** (`gemensamt/generera_landningssida.R`) och installeras på respektive server av repots egen `server/landningssida_installera.sh` vid varje deploy till `publicera-publik`/`publicera-intern` — precis samma branch-modell som Shinyappar och webbrapporter. Publicera ändringar i genereringslogiken med:
+
+```r
+rddeploy::landningssida_publicera()   # publicerar till båda servrarna i ett anrop
+```
+
+Funktionen:
 
 1. Skannar `/srv/shiny-server/` efter appar (mappar med `ui.R` eller `app.R`) och `/srv/rapporter/` efter rapporter (mappar med `index.html`).
 2. Extraherar en titel ur varje apps `ui.R`/`app.R` (annars ett snyggformaterat mappnamn), och ur rapporternas `<title>`/`<h1>`.
-3. Väljer en ikon per post — antingen en manuellt kopplad ikon, eller en gissning baserad på nyckelord i namnet.
-4. Utesluter allt som står i serverns exkluderingslista, plus vissa alltid-exkluderade tekniska mappar (`.renv-cache` m.fl.).
-5. Skriver den färdiga `index.html` till serverns webbrot.
+3. Väljer en beskrivning — en manuellt satt beskrivning (se nedan) vinner, annars `APP_BESKRIVNING`/`<meta description>` i källans egen kod, annars ingen (URL:en visas som tooltip istället).
+4. Väljer en ikon per post — en manuellt kopplad ikon, annars en gissning baserad på nyckelord i namnet.
+5. Utesluter allt som är manuellt dolt, plus vissa alltid-exkluderade tekniska mappar (`.renv-cache` m.fl.).
+6. Skriver den färdiga `index.html` till serverns webbrot.
 
-Genereringen körs automatiskt som sista steg i varje deploy, och nattligt via cron som skyddsnät. Förvaltningsfunktionerna nedan kör dessutom om genereringen direkt efter varje ändring, så resultatet blir live på en gång.
+Genereringen körs automatiskt som sista steg i varje deploy (av vad som helst — en app, en rapport, eller landningssidelogiken själv), och nattligt via cron som skyddsnät. Ändringar du gör i Adminportalen (nedan) regenererar dessutom direkt på den interna servern; på den publika sker det inom några sekunder via en bakgrundstjänst, se [Serverside-komponenter](#serverside-komponenter).
 
-## Styra vad som visas — exkludering
+:::{.callout-important}
+## Två oberoende kopior har funnits — numera bara en
+Repot `serverdrift` hade tidigare en egen, separat kopia av samma fil (för att installera den på servern som en del av sin egen deploy-pipeline). De två kopiorna synkades inte med varandra, så den som deployade sist "vann" — vilket orsakade en synlig regression på landningssidan i november 2026 när `serverdrift` av misstag skrev över en nyare version från `landningssida`-repot med en gammal. `serverdrift` äger inte längre de här filerna; `landningssida`-repot är den enda källan. Värt att känna till om du stöter på gammal dokumentation eller kod som pekar på en kopia i `serverdrift`.
+:::
 
-Ibland vill man dölja något från landningssidan (test-appar, exempel-appar, verktyg som inte ska exponeras). Det styrs via en exkluderingslista per server, hanterad med dessa funktioner i *func_API.R*:
+## Styra vad som visas, ikoner och beskrivningar — skriptat{#styra-landningssida-skript}
+
+Tre saker kan styras per app/rapport, utan att röra dess egen kod: **synlighet** (dölja/visa), **ikon**, och **beskrivningstext**. Normalfallet är att göra det i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`, fliken "Appar och rapporter") — se [Styra vad som visas på landningssidan](#styra-landningssida) ovan i det användarvända avsnittet. Nedan beskrivs samma saker skriptat i R, för den som t.ex. vill ändra flera poster i rad eller köra det från ett annat skript.
+
+Funktionerna ligger i paketet **`rdadminportal`** (inte *func_API.R*):
 
 ```r
-# Lista allt som finns, med exkluderingsstatus
-landningssida_lista_allt("publik")
+library(rdadminportal)
 
-# Lista bara det som är manuellt exkluderat
-landningssida_lista_exkluderade("publik")
-
-# Dölj en eller flera appar/rapporter
-landningssida_exkludera("publik", c("test123", "hello"))
-
-# Sluta dölja
+# --- Synlighet -------------------------------------------------------------
+landningssida_lista_exkluderade("publik")              # bara det som är dolt
+landningssida_app_oversikt("publik")                   # allt, med status/ikon/beskrivning
+landningssida_exkludera("publik", c("test123", "hello"), andrad_av = "ditt_namn")
 landningssida_inkludera("publik", "test123")
+
+# --- Ikoner ------------------------------------------------------------------
+landningssida_ikoner_lista("publik")                    # aktuella manuella kopplingar
+landningssida_ikoner_bladdra()                           # bläddra bland alla Tabler-ikoner (webbläsare)
+landningssida_ikoner_lista_tillgangliga()                 # kurerad lista i konsolen
+landningssida_ikoner_koppla("publik", "ncdsim", "ti-virus", andrad_av = "ditt_namn")
+landningssida_ikoner_ta_bort_koppling("publik", "ncdsim")  # återgå till automatisk gissning
+
+# --- Beskrivningar -------------------------------------------------------------
+landningssida_beskrivning_lista("publik")
+landningssida_beskrivning_koppla(
+  "publik", "ncdsim",
+  beskrivning = "Simulerar utvecklingen av cancer och hjärt-kärlsjukdom i Sverige vid olika antaganden om riskfaktorer som rökning och kost.",
+  andrad_av = "ditt_namn"
+)
+landningssida_beskrivning_ta_bort_koppling("publik", "ncdsim")  # återgå till kodens egen APP_BESKRIVNING, om någon finns
 ```
 
-Ändringarna slår igenom direkt — funktionerna regenererar landningssidan automatiskt efteråt.
+Ikonklassen måste börja med `ti-` och vara en giltig Tabler-klass — bläddra fritt på [tabler.io/icons](https://tabler.io/icons). En satt beskrivning vinner alltid över `APP_BESKRIVNING` i koden; praktiskt för appar importerade från externa repon (t.ex. via `git subtree`, som NCD-SIM) där man varken vill eller kan ändra källkoden för att lägga till en beskrivning.
 
 :::{.callout-note}
 ## Strukturella krav gäller ändå
-En mapp visas bara om den strukturellt kvalificerar (en app kräver `ui.R`/`app.R` direkt i roten; en rapport kräver `index.html`). Något som inte uppfyller det syns aldrig på landningssidan, oavsett om det står i exkluderingslistan eller inte — att lägga sådant i listan är därför ofarligt men överflödigt.
+En mapp visas bara om den strukturellt kvalificerar (en app kräver `ui.R`/`app.R` direkt i roten; en rapport kräver `index.html`). Något som inte uppfyller det syns aldrig på landningssidan, oavsett inställningar ovan — att dölja eller sätta ikon/beskrivning på sådant är därför ofarligt men utan effekt.
 :::
 
-## Styra ikoner
+:::{.callout-note}
+## Gammal dokumentation kan nämna SSH-baserade funktioner med samma namn
+*func_API.R* har fortfarande kvar en äldre uppsättning funktioner med identiska namn (`landningssida_exkludera()`, `landningssida_ikoner_koppla()` m.fl.), som pratar med servern via SSH och lagrar allt i textfiler (`/etc/landningssida/*.txt`). De beskriver inte längre hur systemet faktiskt fungerar — använd `rdadminportal`-paketet (ovan) istället.
+:::
 
-Varje post får en ikon från Tabler-biblioteket. Utan konfiguration gissas ikonen utifrån nyckelord i namnet (t.ex. "karta" → kartikon, "befolkning" → gruppikon). Du kan när som helst koppla en specifik ikon manuellt, vilket då åsidosätter gissningen:
+## Serverside-komponenter{#serverside-komponenter}
 
-```r
-# Se vilken ikon varje app/rapport har just nu, och om den är gissad eller manuell
-landningssida_ikoner_lista("publik")
+För fullständighetens skull — så här hänger delarna ihop på servern:
 
-# Bläddra bland alla tillgängliga ikoner (öppnar webbläsaren)
-landningssida_ikoner_bladdra()
-
-# Visa en kurerad lista med relevanta ikoner direkt i konsolen
-landningssida_ikoner_lista_tillgangliga()
-
-# Koppla en specifik ikon
-landningssida_ikoner_koppla("publik", "ncdsim", "ti-virus")
-
-# Ta bort en manuell koppling (återgår till den automatiska gissningen)
-landningssida_ikoner_ta_bort_koppling("publik", "ncdsim")
-```
-
-Ikonklassen måste vara en giltig Tabler-klass som börjar med `ti-`. Den kurerade listan täcker de vanligaste behoven, men vilken giltig `ti-xxx`-klass som helst fungerar — bläddra fritt på [tabler.io/icons](https://tabler.io/icons). Precis som med exkluderingen regenereras landningssidan automatiskt efter varje ändring.
-
-## Serverside-komponenter
-
-För fullständighetens skull, det här är delarna som ligger på respektive server och som förvaltningsfunktionerna pratar med via SSH:
-
-| Komponent | Sökväg | Roll |
+| Komponent | Var | Roll |
 |---|---|---|
-| Genereringsskript | `/usr/local/bin/generera_landningssida.R` | Bygger `index.html` |
-| Genererings-wrapper | `/usr/local/bin/generera_landningssida.sh` | Anropar skriptet med serverns parametrar |
-| Exkluderingshantering | `/usr/local/bin/hantera_exkludering.sh` | Läser/ändrar exkluderingslistan |
-| Exkluderingsstatus | `/usr/local/bin/landningssida_status.sh` | Listar allt med status |
-| Ikonhantering | `/usr/local/bin/hantera_ikon.sh` | Läser/ändrar ikonkopplingar |
-| Ikonstatus | `/usr/local/bin/landningssida_ikoner_status.sh` | Listar aktuella ikoner |
-| Exkluderingslista | `/etc/landningssida/exkludering_<publik/intern>.txt` | Persistent lista |
-| Ikonkopplingar | `/etc/landningssida/ikoner_<publik/intern>.txt` | Persistenta overrides |
+| `landningssida`-repot | GitHub, egen deploy-pipeline | Äger `generera_landningssida.R`/`.sh`; installeras på servern vid varje deploy |
+| Tillståndsdata (synlighet/ikon/beskrivning) | Postgres, `adminshiny.landningssida_exkludering` / `_ikon` / `_beskrivning` | Databasen är sanningskälla för alla tre — ingen textfil |
+| Adminportalen | Shiny-app på RP0003 | Webbgränssnitt mot databasen ovan (`rdadminportal`-paketet) |
+| `adminportal-lyssnare.service` | systemd-tjänst på wfalmitvs978 (publika servern) | Lyssnar på databasändringar (Postgres `LISTEN`/`NOTIFY`) och kör om genereringen inom några sekunder. Finns bara på den publika servern — på RP0003 kör Adminportalen om genereringen direkt, lokalt, eftersom den redan kör där |
+| `hantera_ikon.sh` | `/usr/local/bin/` på RP0003 | Lokalt sudo-anrop som Adminportalen (som redan kör på RP0003) använder för att läsa interna ikonkopplingar — motsvarande för publik sker via databasen direkt |
+| `adminshiny.kommando` | Postgres-tabell | Kommandokö för engångsåtgärder på publika servern som inte är rena tillståndsändringar (t.ex. ta bort en nedladdningsfil) — plockas upp av lyssnartjänsten |
 
-Alla `hantera_*`- och `*_status.sh`-skripten körs med `sudo` av de användare som kör förvaltningsfunktionerna respektive GitHub Actions-runnern, via NOPASSWD-regler i `/etc/sudoers.d/`. Ändringar i dessa skript distribueras till respektive server och görs körbara; själva parametervalen (domän, publik vs intern) ligger i wrappern och i konfigfilerna under `/etc/landningssida/`, inte i R-funktionerna.
+Repot `serverdrift` (se [separat README](https://github.com/Region-Dalarna/serverdrift)) dokumenterar hur `adminportal-lyssnare.service` och övrig delad serverinfrastruktur sätts upp och installeras.
 
 
 ## Teknisk infrastruktur bakom portaler och rapporter
@@ -618,6 +639,6 @@ Detta är en engångsändring på servernivå (inte något som styrs per repo el
 - **Webbrapporter** publiceras nu från sitt eget repo med `webbrapport_publicera("namn", target = ...)` och tas bort med `webbrapport_avpublicera("namn", target = ...)`. HTML-filen måste heta samma som repot och vara renderad och incheckad innan publicering.
 - **Dokumentationsportaler** skapas med `webbsida_med_portal_skapa_med_github_repo()` och renderas på servern vid varje deploy. Nya sidor i en befintlig portal (t.ex. `dokumentation`) skapas med `dokumentation_sida_skapa()`, som säkerställer rätt filnamn och struktur.
 - **Shinyappar** har sitt eget flöde (`shinyapp_publicera()` m.fl.), dokumenterat separat.
-- Varje server har en **landningssida** som automatiskt listar allt publicerat, regenererad vid varje deploy och nattligt via cron.
-- Förvaltare kan styra landningssidan via *func_API.R*: **exkludering** (`landningssida_exkludera()`/`landningssida_inkludera()`) och **ikoner** (`landningssida_ikoner_koppla()` m.fl.). Ändringarna slår igenom direkt eftersom sidan regenereras automatiskt.
-- Förvaltningsfunktionerna kräver nyckelbaserad SSH (`shinyserver`/`shinyserver_intern`) och är enbart relevanta för dem som administrerar servrarna.
+- Varje server har en **landningssida** som automatiskt listar allt publicerat, regenererad vid varje deploy och nattligt via cron. Genereringslogiken ligger i repot `landningssida` och publiceras med `rddeploy::landningssida_publicera()`.
+- Vem som helst kan styra **synlighet**, **ikon** och **beskrivningstext** per app/rapport i **Adminportalen** — inget R-skript eller SSH krävs. Samma sak går att skripta med paketet `rdadminportal` (`landningssida_exkludera()`/`landningssida_ikoner_koppla()`/`landningssida_beskrivning_koppla()` m.fl.) för den som vill ändra flera poster i rad.
+- Djupare infrastrukturdokumentation (deploy-pipeline, serverskript, `adminportal-lyssnare`-tjänsten) kräver nyckelbaserad SSH och är bara relevant för dem som administrerar servrarna.
