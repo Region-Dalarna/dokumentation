@@ -58,6 +58,13 @@ En enkel tumregel: **`rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorout
 
 `rd` är ett paraplypaket utan egen kod: `library(rd)` drar in `rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar` i ett enda anrop.
 
+Precis som övriga paket i monorepot måste `rd` installeras innan det går att ladda:
+
+```r
+# install.packages("remotes")
+remotes::install_github("Region-Dalarna/rdpaket", subdir = "packages/rd")
+```
+
 ```r
 library(rd)
 # motsvarar: library(rdverktyg); library(rddiagram); library(rdgis);
