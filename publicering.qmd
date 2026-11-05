@@ -300,6 +300,15 @@ Varje post får automatiskt en titel (hämtad från appens/rapportens egen kod, 
 
 ## Styra vad som visas på landningssidan{#styra-landningssida}
 
+Adminportalen (`samhallsanalys.ltdalarna.se/adminportal`) har fyra flikar:
+
+- **Appar och rapporter** — styr synlighet, ikon och beskrivning per app/rapport på landningssidan. Beskrivs i detalj nedan.
+- **Cron-jobb** — skapa, aktivera/avaktivera och ta bort schemalagda R-skript kopplade till en app eller rapport (t.ex. nattliga datauppdateringar). Jobben körs på servern via `cron`, med egen körlogg.
+- **Nedladdning** — översikt per app/rapport och server över filer som genererats åt besökare för nedladdning (t.ex. exporterade rapporter eller dataset). Visar filstorlekar och låter dig radera enskilda filer eller hela nedladdningsmappen för en post, samt trigga en manuell synk om den nattliga körningen missat något.
+- **Statistik** — besöksstatistik per app: antal sessioner, flikbesök och aktivitet över tid (veckodag × timme), hämtat från telemetridata som apparna själva rapporterar in (se `rdshinyappar`s telemetri-funktioner i Shiny-dokumentationen).
+
+Resten av det här avsnittet handlar om fliken **"Appar och rapporter"**, eftersom den är direkt kopplad till landningssidans innehåll.
+
 Vill du dölja något, byta ikon, eller sätta/ändra en beskrivningstext — utan att röra appens eller rapportens egen kod — gör du det i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`), fliken **"Appar och rapporter"**. Det täcker tre saker per app/rapport:
 
 - **Synlighet** — klicka direkt på Synlig/Dold i tabellen.
