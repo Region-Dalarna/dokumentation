@@ -89,10 +89,25 @@ Det betyder i praktiken: **så fort du pushar en ändring till `main` i ett port
 
 En webbrapport är en enskild renderad HTML-fil som publiceras från sitt **eget** repo (till skillnad från det tidigare upplägget där alla rapporter samlades i ett gemensamt repo). Repot måste innehålla en HTML-fil som heter samma som repot, t.ex. `laget_i_dalarna.html` i repot `laget_i_dalarna`.
 
-:::{.callout-note}
-## Övergång: det gamla sammanläggnings-repot fasas ut
-Tidigare publicerades alla webbrapporter via ett gemensamt repo (*samhallsanalys-rapporter*) på GitHub Pages, med en selektiv merge per rapport. Det upplägget fasas ut i och med att vi går över till att publicera på de egna servrarna. Numera publicerar sig varje rapport **direkt från sitt eget repo** — du behöver alltså inte längre röra något gemensamt repo, och kan bortse från äldre dokumentation som nämner *samhallsanalys-rapporter* eller en `publicera`-branch. Under övergångsperioden kan båda modellerna existera parallellt tills alla rapporter migrerats.
+### Migrering från RMarkdown och publicera_rapporter{#migrering-fran-rmarkdown}
+
+Innan den nuvarande modellen (en webbrapport = ett eget repo, publicerat direkt till våra egna servrar) användes ett äldre upplägg, byggt kring RMarkdown och ett gemensamt repo som heter **`publicera_rapporter`**. Känner du inte igen namnet är det inget att oroa sig för — det är historik, inte något att använda för nya rapporter.
+
+I det äldre upplägget hade varje rapport fyra numrerade skript i sitt eget repo:
+
+1. `1_hamta_data.R` — hämtade data.
+2. `2_knitta_rapport.R` — körde `rmarkdown::render()` på rapportens `.Rmd`.
+3. `3_kopiera_till_publicera_rapporter_docs_for_publicering_pa_webben.R` — kopierade den renderade HTML-filen till `docs/`-mappen i det gemensamma repot **`publicera_rapporter`**.
+4. `4_push_av_hela_repo_till_github.R` — pushade både rapportens eget repo och `publicera_rapporter`, som i sin tur publicerades via GitHub Pages.
+
+:::{.callout-important}
+## Viktigt för äldre rapporter: vilken version är egentligen publicerad?
+Eftersom publiceringen gick via en **separat kopiering** (steg 3 ovan) kan rapportens eget repo innehålla en **utvecklingsversion** — en kommande uppdatering som ännu inte kopierats vidare — samtidigt som en annan, äldre version ligger publicerad i `publicera_rapporter`. Stöter du på en rapport som fortfarande använder det här upplägget: anta aldrig att filen i rapportens eget repo är det som faktiskt visas på webben. Det som faktiskt är publicerat är filen i `publicera_rapporter/docs/`, inte den som (eventuellt) ligger och väntar i rapportens eget repo.
 :::
+
+Upplägget fasas successivt ut i takt med att rapporter migreras till den nuvarande modellen, där `webbrapport_publicera()` (se [TL;DR](#webbrapporter) nedan) publicerar direkt från rapportens eget repo till våra egna servrar — utan mellansteg, utan separat kopiering och utan `publicera_rapporter`. Så snart en rapport migrerats finns bara en version att hålla reda på: den som ligger i rapportens eget repo. Under övergångsperioden kan båda modellerna existera parallellt.
+
+Framöver planerar vi att, även i den nuvarande modellen, separera produktion och pågående arbete tydligare med en egen utvecklingsbranch för nästa version av en rapport — se [Produktion och nästa version](#produktion-och-nasta-version) nedan.
 
 :::{.callout-note}
 ## Förutsättning: HTML-filen måste vara renderad och incheckad
@@ -142,9 +157,48 @@ webbrapport_avpublicera("laget_i_dalarna", target = "intern")
 
 Funktionen frågar interaktivt efter bekräftelse (du får skriva repo-namnet) innan den triggar borttagningen. Den tar bort rapportens mapp från `/srv/rapporter/<reponamn>/` på vald server och regenererar landningssidan.
 
+### Produktion och nästa version: utvecklingsbranch{#produktion-och-nasta-version}
+
+Hittills har vi beskrivit `main`/`master` som "din arbetsbranch" — men det betyder också att **allt** som råkar ligga på `main` följer med nästa gång du publicerar, även om du egentligen bara ville rätta en liten detalj medan en större uppdatering av rapporten fortfarande är halvfärdig.
+
+Framöver inför vi därför ett enkelt arbetssätt för det här, på samma sätt som man ofta jobbar i programvaruutveckling:
+
+- **`main`/`master`** är alltid den version som faktiskt är i produktion — det som visas för besökaren just nu.
+- **En separat branch, t.ex. `nasta-version`**, används för att jobba vidare på nästa uppdatering av rapporten, utan att det syns för besökaren förrän du är redo.
+
+Typiskt arbetsflöde:
+
+```r
+# Skapa (en gång) en branch för nästa version, utgående från main
+gert::git_branch_create("nasta-version", repo = "sokvag/till/rapporten")
+
+# ... jobba vidare på rapportens .qmd/.Rmd i branchen nasta-version ...
+```
+
+Upptäcker du under tiden ett stavfel eller annat litet fel i den **publicerade** versionen? Byt tillbaka till `main`, rätta felet där och publicera som vanligt — helt oberoende av vad som pågår i `nasta-version`:
+
+```r
+gert::git_branch_checkout("main", repo = "sokvag/till/rapporten")
+# ... rätta felet ...
+rddeploy::webbrapport_publicera("laget_i_dalarna", target = "publik")
+```
+
+Fortsätt sedan jobba i `nasta-version` som om inget hänt. När nästa version är klar att publiceras, slå ihop den med `main` och publicera:
+
+```r
+gert::git_branch_checkout("main", repo = "sokvag/till/rapporten")
+gert::git_merge("nasta-version", repo = "sokvag/till/rapporten")
+rddeploy::webbrapport_publicera("laget_i_dalarna", target = "publik")
+```
+
+:::{.callout-tip}
+## Varför inte bara jobba direkt i main?
+Så länge en rapport sällan uppdateras gör det ingen skillnad. Fördelen syns när en större uppdatering tar tid (dagar eller veckor) och du samtidigt behöver kunna rätta ett mindre fel i det som redan är publicerat, utan att av misstag publicera en halvfärdig version av den större uppdateringen tillsammans med rättningen.
+:::
+
 ## Shinyappar{#shinyappar}
 
-Shinyappar har sitt eget, mer omfattande flöde som beskrivs i den separata Shiny-dokumentationen. Kort sammanfattat:
+Shinyappar har sitt eget, mer omfattande flöde — skapande, branch-struktur, renv, mapp-rättigheter m.m. — som beskrivs i sin helhet i den separata **[Shiny-dokumentationen](shiny.html)**. Här är bara TL;DR för själva publiceringskommandona:
 
 ```r
 # Skapa
@@ -236,10 +290,10 @@ Funktionen:
 
 :::{.callout-note}
 ## Går det att skapa filen för hand istället?
-Ja, men bara om du följer exakt samma struktur som `dokumentation_sida_skapa()` genererar — gement filnamn utan mellanslag eller å/ä/ö, samma YAML-fält (`title`, `subtitle`, `listing-description`), och att filen läggs i repo-roten. Avviker filen från det riskerar den att antingen inte renderas korrekt eller inte dyka upp rätt i portalens innehållslista. Enklast och säkrast är därför att alltid utgå från funktionen.
+Nej — använd alltid `rddeploy::dokumentation_sida_skapa()`. Det är i praktiken fullt möjligt att skriva en `.qmd`-fil för hand som renderas och listas korrekt, men det kräver att man exakt replikerar YAML-fälten (`title`, `subtitle`, `listing-description`) och filnamnsreglerna (gement, utan mellanslag eller å/ä/ö) som funktionen annars sköter åt dig. Det är en felkälla utan någon fördel, så det är inte en metod vi använder.
 :::
 
-Oavsett hur filen skapats gäller samma sista steg: committa och pusha till `main`, så renderar servern om hela portalen och den nya sidan dyker upp automatiskt i innehållslistan — ingen manuell registrering behövs, och inget separat publiceringsanrop krävs.
+Committa och pusha den nya filen till `main`, så renderar servern om hela portalen och den nya sidan dyker upp automatiskt i innehållslistan — ingen manuell registrering behövs, och inget separat publiceringsanrop krävs.
 
 ## Skriva `.qmd`-sidor: kodexempel och den viktiga `eval`-regeln{#skriva-qmd-sidor}
 
@@ -403,7 +457,7 @@ För fullständighetens skull — så här hänger delarna ihop på servern:
 Repot `serverdrift` (se [separat README](https://github.com/Region-Dalarna/serverdrift)) dokumenterar hur `adminportal-lyssnare.service` och övrig delad serverinfrastruktur sätts upp och installeras.
 
 
-## Teknisk infrastruktur bakom portaler och rapporter
+## Teknisk infrastruktur bakom portaler och rapporter{#teknisk-infrastruktur-bakom-portaler-och-rapporter}
 
 Det här avsnittet dokumenterar hur portal- och rapportpubliceringen fungerar under huven — mallar, deploy-pipeline och serverskript. Det behövs bara om du förvaltar eller felsöker själva publiceringsinfrastrukturen, inte för att skriva eller publicera innehåll.
 
@@ -558,7 +612,7 @@ Saknade paket installeras ett i taget; paket som misslyckas (typiskt på grund a
 
 Systemberoenden (Java, `libgdal-dev`, `libpq-dev` med flera) måste fortfarande installeras manuellt på servern med `apt`, precis som för renv-cachen på Shiny-servrarna — `install.packages()` kan inte lösa den typen av beroenden själv.
 
-#### Serverskriptet `rapport_deploy_repo.sh`
+#### Serverskriptet `rapport_deploy_repo.sh`{#serverskriptet-rapport-deploy-repo-sh}
 
 Både webbrapporter och dokumentationsportaler deployas via samma serverskript, `/usr/local/bin/rapport_deploy_repo.sh <SOURCE_DIR> <REPO_NAMN>` (finns på båda servrarna). Det är avsett för självständiga repon som deployar sig själva oberoende av varandra — till skillnad från ett äldre, nu utfasat upplägg där alla rapporter samlades i ett gemensamt repo och deployades som ett samlat träd.
 
@@ -585,39 +639,79 @@ För webbrapporter (som publiceras från sitt eget repo, se [Webbrapporter](#web
 
 Målmappens namn tvingas till gemener, så en rapport i repot `Laget_i_Dalarna` alltid publiceras på `/laget_i_dalarna/` oavsett hur repot råkar vara skrivet på GitHub.
 
-### Server-uppsättning
+### Statisk rapport- och portal-hosting: serveruppsättning{#statisk-hosting}
 
-Dokumentationsportaler återanvänder samma `/srv/rapporter/`-struktur, samma `rapport-deploy`-användare och samma nginx-konfiguration som webbrapporterna (se [Shiny-dokumentationens serveruppsättning](shiny.html#statisk-hosting)) — ingen ny katalogstruktur eller nytt ägarskap behövdes.
+Webbrapporter och dokumentationsportaler serveras från samma Shiny-server som Shinyapparna, men under en separat domän (`samhallsanalys.regiondalarna.se`) och ett eget filträd (`/srv/rapporter/`). Apparna och rapporterna lever sida vid sida tack vare en `try_files`-fallback i nginx: rapporter under `/srv/rapporter/` har företräde, och allt som inte matchar en rapport faller igenom till `/srv/shiny-server/` som vanligt.
 
-Det som *behövde* sättas upp separat var en egen self-hosted runner på den interna servern, som en spegling av publika serverns tvådelade runner-modell (en runner för Shinyappar, en för statiskt innehåll):
+Det här avsnittet beskriver hur den infrastrukturen sätts upp, en gång per server. Är allting redan på plats (normalfallet) behövs inget av detta — publiceringsflödena ovan räcker. Avsnittet behövs bara för att sätta upp en ny server eller felsöka själva serveruppsättningen.
 
-| Server | Runner (app-deploy) | Runner (rapport/portal-deploy) |
-|---|---|---|
-| Publik (wfalmitvs978) | `shiny-deploy-publik` | `rapport` |
-| Intern (RP0003) | `shiny-deploy-intern` | `rapport-intern` *(ny)* |
+#### Översikt över komponenterna
 
-Internservern hade tidigare bara en enda runner (kördes som `shiny-deploy`, användes för Shinyappar). En ny runner sattes upp specifikt för rapport/portal-deploys, körandes som **`rapport-deploy`** — samma separation av ansvar som redan fanns på publika servern, snarare än att låta `shiny-deploy` få rättigheter till `/srv/rapporter/` via sudoers (vilket hade suddat ut gränsen mellan app- och rapportdeploy).
+| Komponent | Plats | Funktion |
+|-----------|-------|----------|
+| `/srv/rapporter/` | Shiny-servern | Roten där alla statiska rapporter/portaler serveras från |
+| `rapport-deploy` | Linux-användare på Shiny-servern | Äger filerna under `/srv/rapporter/` |
+| `www-data` | Linux-grupp | Gruppen som nginx kör som — får läsrätt till rapportfilerna |
+| `/usr/local/bin/rapport_deploy_repo.sh` | Shiny-servern | Rsyncar in EN rapport/portal till sin egen mapp och sätter rättigheter, se [Serverskriptet rapport_deploy_repo.sh](#serverskriptet-rapport-deploy-repo-sh) ovan |
+| Self-hosted runner med label `rapport`/`rapport-intern` | Shiny-servern | Kör GitHub Actions-deploys som användaren `rapport-deploy` |
+| nginx `try_files`-fallback | `/etc/nginx/sites-available/` | Sätter `/srv/rapporter/` före `/srv/shiny-server/` i routningen |
 
-```bash
-# Som rapport-deploy på RP0003:
-mkdir -p ~/actions-runner && cd ~/actions-runner
-curl -O -L https://github.com/actions/runner/releases/download/<version>/actions-runner-linux-x64-<version>.tar.gz
-tar xzf actions-runner-linux-x64-<version>.tar.gz
-./config.sh --url https://github.com/Region-Dalarna --token <engångstoken> --labels rapport-intern
+Logiken är medvetet samma som för Shinyapparna: en användare skriver (deploy-användaren), en grupp läser (webbservern). Inga manuella steg krävs vid normala publiceringar.
 
-# Som operationsadmin:
-cd /home/rapport-deploy/actions-runner
-sudo ./svc.sh install rapport-deploy
-sudo ./svc.sh start
-```
+#### Skapa användare, grupp och katalog
 
-Quarto (samma version som används lokalt i RStudio, t.ex. 1.7.32) samt `git` behövde installeras systemvitt på båda servrarna — det senare var inte tidigare installerat eftersom all git-hantering annars sker lokalt via `gert`/`git2r`, men behövs på servern av `installera_qmd_paket.sh`-relaterade skript (git-loggen används för att sätta datum, se ovan).
+På Shiny-servern (som `operationsadmin` med `sudo`):
 
 ```bash
-wget https://github.com/quarto-dev/quarto-cli/releases/download/v1.7.32/quarto-1.7.32-linux-amd64.deb
-sudo dpkg -i quarto-1.7.32-linux-amd64.deb
-sudo apt install -y git
+# Skapa rapport-deploy-användaren
+sudo adduser --system --group --shell /bin/bash --home /home/rapport-deploy rapport-deploy
+
+# Lägg rapport-deploy i gruppen www-data så att nginx kan läsa filerna
+sudo usermod -aG www-data rapport-deploy
+
+# Skapa rotkatalogen
+sudo mkdir -p /srv/rapporter
+sudo chown rapport-deploy:www-data /srv/rapporter
+sudo chmod 2755 /srv/rapporter
 ```
+
+Setgid-biten (`2` i `2755`) gör att nya filer och underkataloger automatiskt ärver gruppen `www-data` — vilket är vad nginx behöver för att kunna servera dem.
+
+#### nginx-konfiguration
+
+I serverblocket för Shiny-servern lägger man till ett `try_files`-direktiv så att statiska rapporter har företräde framför Shiny-server-proxyn. Principen: nginx letar först efter en matchande fil under `/srv/rapporter/`, och om ingen hittas faller det igenom till proxyn.
+
+Exempel (förenklat):
+
+```nginx
+server {
+    server_name shiny.regiondalarna.se samhallsanalys.regiondalarna.se;
+    # ... ssl-konfig, listen-direktiv m.m. ...
+
+    # Statiska webbrapporter har företräde
+    location / {
+        root /srv/rapporter;
+        try_files $uri $uri/ @shiny;
+    }
+
+    # Allt som inte matchar en statisk rapport går vidare till Shiny-servern
+    location @shiny {
+        proxy_pass http://127.0.0.1:3838;
+        # ... övriga proxy-headers ...
+    }
+}
+```
+
+Notera `try_files $uri $uri/ @shiny` (med `$uri/`, inte `$uri/index.html`) — se nästa stycke för varför.
+
+Reload:a nginx efter ändringarna:
+
+```bash
+sudo nginx -t        # syntaxkontroll
+sudo systemctl reload nginx
+```
+
+Testa både en känd rapport-url och en känd Shiny-app-url för att säkerställa att fallback:en fungerar i båda riktningarna.
 
 #### nginx: trailing-slash-fix
 
@@ -643,6 +737,61 @@ location / {
 ```
 
 Detta är en engångsändring på servernivå (inte något som styrs per repo eller i mallarna), gjord i `/etc/nginx/sites-available/shiny-intern-ssl` respektive `/etc/nginx/sites-available/shiny-ssl`.
+
+#### Self-hosted runner för rapport-deploys
+
+GitHub Actions-deployen kör som användaren `rapport-deploy` via en egen self-hosted runner per server — labeln `rapport` på den publika servern, `rapport-intern` på den interna. Den lever sida vid sida med Shiny-app-runnern (`shiny-deploy-publik`/`shiny-deploy-intern`) på samma server — de stör inte varandra eftersom de kör som olika användare och har olika labels:
+
+| Server | Runner (app-deploy) | Runner (rapport/portal-deploy) |
+|---|---|---|
+| Publik (wfalmitvs978) | `shiny-deploy-publik` | `rapport` |
+| Intern (RP0003) | `shiny-deploy-intern` | `rapport-intern` |
+
+Internservern hade ursprungligen bara en enda runner (`shiny-deploy`, för Shinyappar). En ny runner sattes upp specifikt för rapport/portal-deploys, körandes som **`rapport-deploy`** — samma separation av ansvar som redan fanns på publika servern, snarare än att låta `shiny-deploy` få rättigheter till `/srv/rapporter/` via sudoers (vilket hade suddat ut gränsen mellan app- och rapportdeploy). Varje webbrapport- och portal-repo har en `deploy.yml` med `runs-on: [ self-hosted, rapport ]` (eller `rapport-intern`) och plockas alltså bara upp av rätt rapport-runner.
+
+Som `rapport-deploy`, på vardera servern (byt ut `<label>` mot `rapport` respektive `rapport-intern`):
+
+```bash
+sudo su - rapport-deploy
+mkdir -p ~/actions-runner && cd ~/actions-runner
+
+# Hämta senaste runner-paketet — kolla aktuell version och token via
+# GitHub: Organization settings → Actions → Runners → New self-hosted runner
+curl -O -L https://github.com/actions/runner/releases/download/<version>/actions-runner-linux-x64-<version>.tar.gz
+tar xzf actions-runner-linux-x64-<version>.tar.gz
+
+# Konfigurera mot organisationen (Region-Dalarna), label = <label>
+./config.sh --url https://github.com/Region-Dalarna --token <engångstoken> --labels <label>
+```
+
+Tillbaka som `operationsadmin` — installera och starta som systemd-tjänst så att runnern startar automatiskt vid omstart:
+
+```bash
+cd /home/rapport-deploy/actions-runner
+sudo ./svc.sh install rapport-deploy
+sudo ./svc.sh start
+sudo ./svc.sh status
+```
+
+Efter detta dyker en ny runner upp (typiskt `<servernamn>-rapport`) som aktiv under organisations-inställningarna på GitHub, och alla jobb med matchande `runs-on`-label plockas upp av den.
+
+#### Quarto och git på servern
+
+Quarto (samma version som används lokalt i RStudio, t.ex. 1.7.32) samt `git` behöver vara installerade systemvitt på servern — `git` är inte alltid installerat från början eftersom all git-hantering annars sker lokalt via `gert`/`git2r`, men behövs på servern av `installera_qmd_paket.sh`-relaterade skript (git-loggen används för att sätta datum, se ovan).
+
+```bash
+wget https://github.com/quarto-dev/quarto-cli/releases/download/v1.7.32/quarto-1.7.32-linux-amd64.deb
+sudo dpkg -i quarto-1.7.32-linux-amd64.deb
+sudo apt install -y git
+```
+
+#### Webbrapport- och portal-repon deployar sig själva
+
+Till skillnad från ett äldre upplägg (där alla rapporter samlades i ett gemensamt repo, se [Migrering från RMarkdown och publicera_rapporter](#migrering-fran-rmarkdown)) publicerar sig varje webbrapport och dokumentationsportal **från sitt eget repo**. Det finns alltså inget centralt publiceringsregister att sätta upp på servern — varje repo har sin egen `deploy.yml` som pushas till en `publicera-publik`/`publicera-intern`-branch (webbrapporter) eller `main` (portaler), vilket triggar rapport-runnern som kör `rapport_deploy_repo.sh` och lägger resultatet i sin egen mapp under `/srv/rapporter/<reponamn>/`.
+
+#### DNS för samhallsanalys.regiondalarna.se
+
+För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` behöver DNS-recordet för domänen peka mot Shiny-serverns publika IP. Det hanteras via IT genom ett vanligt ärende — be om en A-record för `samhallsanalys.regiondalarna.se` mot Shiny-serverns IP. När DNS:en propagerat (kan ta upp till några timmar beroende på TTL) bör ett anrop till `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` svara med rapportens HTML.
 
 # Sammanfattning
 

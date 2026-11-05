@@ -396,24 +396,12 @@ on:
 
 ## Branch-struktur i våra Shiny-repon
 
-Varje Shiny-applikation ligger i ett eget GitHub-repo med tre brancher som fyller olika roller:
+Den generella branch-modellen (arbetsbranch → `publicera-publik`/`publicera-intern` triggar deploy) delas med webbrapporter och beskrivs en gång i [Publicering på webben](publicering.html#publicera-till-publik-eller-intern-server). Det som är specifikt för Shinyappar, och inte gäller webbrapporter, är hur produktionsbranchen faktiskt uppdateras:
 
-### 1. master – arbetsbranch
-
-* Här sker allt löpande utvecklingsarbete.
-* Nya funktioner, bugfixar och layoutförändringar görs på denna branch.
-* Alla pushar hit är helt säkra – ingen deploy sker automatiskt.
-
-### 2. publicera-publik / publicera-intern – produktionsbrancher (deploy-trigger)
-
-* En push till `publicera-publik` deployar till den publika servern, en push till `publicera-intern` till den interna.
-* Du skapar eller uppdaterar dem inte för hand — `rddeploy::shinyapp_publicera()` och `rddeploy::shinyapp_flytta()` sköter force-pushen åt dig (se [Flöde för att uppdatera Shinyapp respektive publicera en ny version](#flode-for-att-uppdatera-shinyapp-respektive-publicera-en-ny-version)).
-* När en av brancherna uppdateras uppdateras också motsvarande appkatalog på rätt Shiny-server: `/srv/shiny-server/<appnamn>`.
-* Produktionsbranchen skapas automatiskt av `shinyapp_publicera()` vid **första** publiceringen — inget separat steg behövs.
-
-### 3. (Valfritt) andra feature-brancher
-
-* Vid större utveckling kan man skapa kortlivade brancher som sedan mergas in i `master`.
+* Arbetsbranchen heter hos oss normalt `master` (nya repon fungerar lika bra med `main` — funktionerna läser av vilken default-branch repot faktiskt har).
+* Produktionsbranchen (`publicera-publik`/`publicera-intern`) uppdateras aldrig för hand och aldrig genom en vanlig merge — `rddeploy::shinyapp_publicera()` och `rddeploy::shinyapp_flytta()` **force-pushar** arbetsbranchens aktuella commit dit (se [Flöde för att uppdatera Shinyapp respektive publicera en ny version](#flode-for-att-uppdatera-shinyapp-respektive-publicera-en-ny-version)). Produktionsbranchen blir alltså alltid en exakt kopia av `master`, inte en sammanslagning.
+* Produktionsbranchen skapas automatiskt vid **första** publiceringen — inget separat steg behövs.
+* Vid större utveckling kan man ändå skapa kortlivade feature-brancher som mergas in i `master` innan publicering, precis som i ett vanligt git-flöde.
 
 ## Paket och renv i en Shiny-app
 
@@ -629,9 +617,7 @@ DBI::dbDisconnect(con)
 
 Utöver interaktiva Shinyappar publicerar vi även **statiska webbrapporter** (en enskild renderad HTML-fil från RMarkdown/Quarto) och **dokumentationsportaler** (flera samlade `.qmd`-sidor som renderas på servern, som den portal du läser det här i). Båda serveras från samma servrar som Shinyapparna, men under `/srv/rapporter/` istället för `/srv/shiny-server/`.
 
-Själva publiceringsflödena för dessa — hur man publicerar en webbrapport från dess eget repo, hur man skapar en dokumentationsportal och skriver nya sidor, samt hur man skriver `.qmd`-filer korrekt — beskrivs i den separata dokumentationen **[Publicering](publicering.html)**. Den tekniska infrastrukturen bakom (deploy-pipeline, serverskript, runners, nginx) beskrivs i samma dokuments förvaltningsavsnitt.
-
-Det som är gemensamt för **all** statisk hosting på servern (katalogstruktur under `/srv/rapporter/`, `rapport-deploy`-användaren, nginx-konfiguration och TLS) dokumenteras längre ner, under [Statisk webbrapport-hosting](#statisk-hosting) — det avsnittet behövs bara för den som sätter upp eller felsöker själva servern.
+Själva publiceringsflödena för dessa — hur man publicerar en webbrapport från dess eget repo, hur man skapar en dokumentationsportal och skriver nya sidor, samt hur man skriver `.qmd`-filer korrekt — beskrivs i den separata dokumentationen **[Publicering](publicering.html)**. Den tekniska infrastrukturen bakom (katalogstruktur under `/srv/rapporter/`, `rapport-deploy`-användaren, nginx-konfiguration, deploy-pipeline, serverskript och runners) beskrivs i sin helhet i samma dokuments förvaltningsavsnitt, under [Statisk rapport- och portal-hosting: serveruppsättning](publicering.html#statisk-hosting) — det avsnittet behövs bara för den som sätter upp eller felsöker själva servern.
 
 # Installation och konfigurering av Shiny-server{#installation-konfigurering-shinyserver}
 
@@ -1064,7 +1050,7 @@ I beställningen till IT specificera:
 
 ### Om du senare vill köra statiska webbrapporter på samma server
 
-Då kompletteras `location /`-blocket med en `try_files`-fallback enligt avsnittet [Statisk webbrapport-hosting](#statisk-hosting), och en andra `server_name` (t.ex. `samhallsanalys-intern.ltdalarna.se`) läggs till. Den uppdelningen är dock inte aktuell på den interna servern i nuläget.
+Då kompletteras `location /`-blocket med en `try_files`-fallback enligt avsnittet [Statisk rapport- och portal-hosting](publicering.html#statisk-hosting) i Publicering-dokumentationen, och en andra `server_name` (t.ex. `samhallsanalys-intern.ltdalarna.se`) läggs till. Den uppdelningen är dock inte aktuell på den interna servern i nuläget.
 
 ## Lägga in lösenord för att ansluta till våra Postgres/postgis-databaser från Shinyservern
 För att Shinyapparna ska kunna kommunicera med våra databaser behöver lösenord läggas in på Shinyservern, liksom det behöver läggas in på de lokala datorer som vill kunna skapa och revidera Shinysappar. Det här behöver bara göras en enda gång och sedan fungerar det. Shiny-servrar körs på Linux och där fungerar inte Keyring-paketet vilket är anledningen till att vi behöver en annan lösenordshantering. Det handlar dock bara om ett lösenord som används för att läsa från databaserna, men det finns också ett lösenord i de fall vi önskar kunna skriva till databaserna också. För att konfigurera en Shiny-server så att dessa lösenord fungerar, gör enligt följande:
@@ -1787,136 +1773,6 @@ openssl rsa  -noout -modulus -in /etc/shiny-server/certs/privatekey.pem | openss
 De två hasharna ska vara identiska. Skiljer de sig — använd inte nyckeln, något har blivit fel i leveransen från IT.
 :::
 
-## Statisk webbrapport-hosting{#statisk-hosting}
-
-Vi serverar statiska webbrapporter (HTML från RMarkdown/Quarto) från samma Shiny-server som Shinyapparna, men under en separat domän (`samhallsanalys.regiondalarna.se`). Apparna och rapporterna lever fredligt sida vid sida tack vare en `try_files`-fallback i nginx — rapporter under `/srv/rapporter/` har företräde, och allt som inte matchar en rapport faller igenom till `/srv/shiny-server/` som vanligt.
-
-Det här avsnittet beskriver hur infrastrukturen sattes upp första gången. Sätter du upp en ny server och vill ha samma uppdelning så följer du stegen nedan. Är allting redan på plats hanteras webbrapporter och portaler via publiceringsflödena i den separata **[Publicering](publicering.html)**-dokumentationen — det här avsnittet behövs bara för själva serveruppsättningen.
-
-### Översikt över komponenterna
-
-| Komponent | Plats | Funktion |
-|-----------|-------|----------|
-| `/srv/rapporter/` | Shiny-servern | Roten där alla statiska rapporter serveras från |
-| `rapport-deploy` | Linux-användare på Shiny-servern | Äger filerna under `/srv/rapporter/` |
-| `www-data` | Linux-grupp | Gruppen som nginx kör som — får läsrätt till rapportfilerna |
-| `/usr/local/bin/rapport_deploy_repo.sh` | Shiny-servern | Bash-script som rsync:ar in EN rapport/portal till sin egen mapp och sätter rättigheter |
-| Self-hosted runner med label `rapport` | Shiny-servern | Kör GitHub Actions-deploys som användaren `rapport-deploy` |
-| nginx `try_files`-fallback | `/etc/nginx/sites-available/` | Sätter `/srv/rapporter/` före `/srv/shiny-server/` i routningen |
-
-Logiken är medvetet samma som för Shinyapparna: en användare skriver (deploy-användaren), en grupp läser (webbservern). Inga manuella steg krävs vid normala publiceringar.
-
-### Skapa användare, grupp och katalog
-
-På Shiny-servern (som `operationsadmin` med `sudo`):
-
-```bash
-# Skapa rapport-deploy-användaren
-sudo adduser --system --group --shell /bin/bash --home /home/rapport-deploy rapport-deploy
-
-# Lägg rapport-deploy i gruppen www-data så att nginx kan läsa filerna
-sudo usermod -aG www-data rapport-deploy
-
-# Skapa rotkatalogen
-sudo mkdir -p /srv/rapporter
-sudo chown rapport-deploy:www-data /srv/rapporter
-sudo chmod 2755 /srv/rapporter
-```
-
-Setgid-biten (`2` i `2755`) gör att nya filer och underkataloger automatiskt ärver gruppen `www-data` — vilket är vad nginx behöver för att kunna servera dem.
-
-### Deploy-script på servern
-
-Skapa `/usr/local/bin/rapport_deploy_repo.sh` som rsync:ar in **en** rapport/portal till sin egen undermapp under `/srv/rapporter/`, sätter rättigheter och kontrollerar att namnet inte krockar med en befintlig Shiny-app:
-
-```bash
-sudo nano /usr/local/bin/rapport_deploy_repo.sh
-sudo chmod 755 /usr/local/bin/rapport_deploy_repo.sh
-sudo chown root:root /usr/local/bin/rapport_deploy_repo.sh
-```
-
-Skriptet tar två argument (`<SOURCE_DIR>` = den renderade sajten/HTML-mappen, `<REPO_NAMN>` = målmappen under `/srv/rapporter/`) och:
-
-* Kontrollerar att `<REPO_NAMN>` inte krockar med en befintlig Shiny-app under `/srv/shiny-server/` — om så avbryts deployen med ett tydligt felmeddelande (annars hade nginx-fallbacken inte fungerat förutsägbart).
-* Kör `rsync -a --delete <SOURCE_DIR>/ /srv/rapporter/<REPO_NAMN>/` — scopat till **just den mappen**, så andra rapporter/portaler i `/srv/rapporter/` aldrig påverkas.
-* Sätter grupp (`www-data`) och rättigheter (`2755` på kataloger, `644` på filer).
-
-Det fullständiga skriptet, och hur det anropas från varje repos `deploy.yml`, dokumenteras i **[Publicering](publicering.html)** under förvaltningsavsnittet — här räcker det att veta att scriptet måste finnas på plats på servern.
-
-### nginx-konfiguration
-
-I serverblocket för Shiny-servern lägger man till ett `try_files`-direktiv så att statiska rapporter har företräde framför Shiny-server-proxyn. Principen: nginx letar först efter en matchande fil under `/srv/rapporter/`, och om ingen hittas faller det igenom till proxyn.
-
-Exempel (förenklat):
-
-```nginx
-server {
-    server_name shiny.regiondalarna.se samhallsanalys.regiondalarna.se;
-    # ... ssl-konfig, listen-direktiv m.m. ...
-
-    # Statiska webbrapporter har företräde
-    location / {
-        root /srv/rapporter;
-        try_files $uri $uri/ @shiny;
-    }
-
-    # Allt som inte matchar en statisk rapport går vidare till Shiny-servern
-    location @shiny {
-        proxy_pass http://127.0.0.1:3838;
-        # ... övriga proxy-headers ...
-    }
-}
-```
-
-Notera `try_files $uri $uri/ @shiny` (med `$uri/`, inte `$uri/index.html`) — det får nginx att automatiskt `301`-redirecta `/dokumentation` till `/dokumentation/` för flersidiga portaler, så relativa CSS/länk-referenser löses mot rätt bas-URL. Detaljerna kring den fixen dokumenteras i **[Publicering](publicering.html)**.
-
-Reload:a nginx efter ändringarna:
-
-```bash
-sudo nginx -t        # syntaxkontroll
-sudo systemctl reload nginx
-```
-
-Testa både en känd rapport-url och en känd Shiny-app-url för att säkerställa att fallback:en fungerar i båda riktningarna.
-
-### Self-hosted runner för rapport-deploys
-
-GitHub Actions-deployen kör som användaren `rapport-deploy` via en egen self-hosted runner med labeln `rapport` (och `rapport-intern` på den interna servern). Den lever sida vid sida med Shiny-app-runnern (`shiny-deploy`) på samma server — de stör inte varandra eftersom de kör som olika användare och har olika labels. Varje webbrapport- och portal-repo har en `deploy.yml` med `runs-on: [ self-hosted, rapport ]` (eller `rapport-intern`) och plockas alltså bara upp av rätt rapport-runner.
-
-Som `rapport-deploy`:
-
-```bash
-sudo su - rapport-deploy
-mkdir -p ~/actions-runner && cd ~/actions-runner
-
-# Hämta senaste runner-paketet — kolla aktuell version och token via
-# GitHub: Organization settings → Actions → Runners → New self-hosted runner
-curl -O -L https://github.com/actions/runner/releases/download/<version>/actions-runner-linux-x64-<version>.tar.gz
-tar xzf actions-runner-linux-x64-<version>.tar.gz
-
-# Konfigurera mot organisationen (Region-Dalarna), label = rapport
-./config.sh --url https://github.com/Region-Dalarna --token <engångstoken> --labels rapport
-```
-
-Tillbaka som `operationsadmin` — installera och starta som systemd-tjänst så att runnern startar automatiskt vid omstart:
-
-```bash
-cd /home/rapport-deploy/actions-runner
-sudo ./svc.sh install rapport-deploy
-sudo ./svc.sh start
-sudo ./svc.sh status
-```
-
-Efter detta dyker en ny runner upp (typiskt `<servernamn>-rapport`) som aktiv under organisations-inställningarna på GitHub, och alla jobb med `runs-on: [ self-hosted, rapport ]` plockas upp av den.
-
-### Webbrapport- och portal-repon deployar sig själva
-
-Till skillnad från ett tidigare upplägg (där alla rapporter samlades i ett gemensamt repo) publicerar sig varje webbrapport och dokumentationsportal numera **från sitt eget repo**. Det finns alltså inget centralt publiceringsregister att sätta upp på servern — varje repo har sin egen `deploy.yml` som pushas till en `publicera-publik`/`publicera-intern`-branch (webbrapporter) eller `main` (portaler), vilket triggar rapport-runnern som kör `rapport_deploy_repo.sh` och lägger resultatet i sin egen mapp under `/srv/rapporter/<reponamn>/`. Själva publiceringsflödena och den detaljerade deploy-pipelinen dokumenteras i **[Publicering](publicering.html)**.
-
-### DNS för samhallsanalys.regiondalarna.se
-
-För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` behöver DNS-recordet för domänen peka mot Shiny-serverns publika IP. Det hanteras via IT genom ett vanligt ärende — be om en A-record för `samhallsanalys.regiondalarna.se` mot Shiny-serverns IP. När DNS:en propagerat (kan ta upp till några timmar beroende på TTL) bör ett anrop till `https://samhallsanalys.regiondalarna.se/<rapportnamn>/` svara med rapportens HTML.
-
 # Sammanfattning
 
 * En ny Shinyapp skapas från scratch med funktionen `rddeploy::shinyapp_skapa_med_github_repo("appnamn")` (paketet **rddeploy** i monorepot `Region-Dalarna/rdpaket`).
@@ -1928,6 +1784,5 @@ För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalar
 * Shiny-koden ligger direkt i repo-roten (ingen `app/`-undermapp), med renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) bredvid. Se [renv-miljö på Shiny-servern](#renv-shinyserver).
 * En app tas bort med `rddeploy::shinyapp_avpublicera("appnamn")` och flyttas till den andra servern med `rddeploy::shinyapp_flytta("appnamn")` (ingen `till`-parameter — riktningen avgörs automatiskt).
 * Rättigheter på app-katalogerna under `/srv/shiny-server/` följer principen *en användare skriver, en grupp läser* — `shiny-deploy:shiny` med läge `2775`/`664`. Deploy-skriptet `/usr/local/bin/shiny_deploy.sh` säkerställer rätt grupp och läge vid varje körning, vilket förutsätter att `shiny-deploy` är medlem i gruppen `shiny`. Se [Rättigheter på app-katalogerna i `/srv/shiny-server/`](#rattigheter-app-kataloger).
-* Statiska webbrapporter (RMarkdown/Quarto) och dokumentationsportaler publiceras från sina egna repon och blir åtkomliga under `/srv/rapporter/`. Publiceringsflödena beskrivs i den separata **[Publicering](publicering.html)**-dokumentationen; själva serveruppsättningen för statisk hosting beskrivs i [Statisk webbrapport-hosting](#statisk-hosting) ovan.
-* Webbrapporterna serveras från `/srv/rapporter/` på samma Shiny-server som Shinyapparna via en `try_files`-fallback i nginx. Infrastrukturen sätts upp en gång per server enligt avsnittet [Statisk webbrapport-hosting](#statisk-hosting).
+* Statiska webbrapporter (RMarkdown/Quarto) och dokumentationsportaler serveras från `/srv/rapporter/` på samma Shiny-server som Shinyapparna, via en `try_files`-fallback i nginx. Både publiceringsflödena och serveruppsättningen (katalogstruktur, `rapport-deploy`-användaren, nginx, runners) beskrivs i den separata **[Publicering](publicering.html)**-dokumentationen, under [Statisk rapport- och portal-hosting: serveruppsättning](publicering.html#statisk-hosting).
 * **TLS-certifikatet** för Shiny-servern hanteras manuellt och Samhällsanalys ansvarar för att hålla det ajour. Det är ett wildcard-cert som IT förnyar centralt ca en gång per år; vi byter ut `fullchain.pem` på servern och startar om nginx. Sätt en kalenderpåminnelse minst 30 dagar innan `notAfter`. Se [Certifikathantering (TLS/SSL)](#certifikathantering).
