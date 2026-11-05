@@ -1,0 +1,340 @@
+---
+title: "rdpaket"
+subtitle: "Region Dalarnas R-paket: vilket paket använder jag till vad?"
+listing-description: "Pedagogisk genomgång av paketen i Region-Dalarna/rdpaket, ett i taget: vad varje paket gör, hur de skiljer sig åt och hur man kommer igång med det man faktiskt behöver. Täcker rd, rdverktyg, rddiagram, rdgis, rdpostgres, rdgeorouting, rdgtfs, rdshinyappar, rddeploy (inklusive GitHub-funktionerna) och rdadminportal."
+author: "Samhällsanalys, Region Dalarna"
+date: last-modified
+lang: sv
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+---
+
+## Inledning
+
+**rdpaket** är ett monorepo på GitHub (`Region-Dalarna/rdpaket`) som samlar alla våra interna R-paket under `packages/` — varje paket är en egen, installerbar R-paketmapp. De är utbrutna ur de gamla funktionsskripten i `Region-Dalarna/funktioner` (`func_API.R`, `func_GIS.R`, `func_shinyappar.R` m.fl.), som successivt fasas ut. **I ny kod, och i all dokumentation, ska rdpaket användas — inte func-filerna.**
+
+Den här sidan går igenom paketen ett i taget: vad de gör, hur de skiljer sig åt, och vilket du faktiskt ska använda för en given uppgift. Vill du bara snabbt se vilket paket som gör vad, läs tabellen i nästa avsnitt.
+
+::: {.callout-tip}
+## pxweb2r ligger i ett eget repo
+`pxweb2r` (hämtar statistik från en PxWeb API v2, t.ex. SCB:s statistikdatabas) är inte en del av rdpaket-monorepot — det ligger i sitt eget repo, `FaluPeppe/pxweb2r`, eftersom det är ett fristående, allmänt användbart paket snarare än Region Dalarna-specifikt. Se [Pxweb2r](pxweb2r.html) för en fullständig genomgång. `rdverktyg` använder `pxweb2r` internt för SCB-hämtning.
+:::
+
+### Installation
+
+Varje paket installeras för sig:
+
+```r
+# install.packages("remotes")
+remotes::install_github("Region-Dalarna/rdpaket", subdir = "packages/rdverktyg")
+```
+
+Beroende `rd*`-paket installeras automatiskt av `remotes` — behöver du t.ex. `rdgis` installeras `rdpostgres` med på köpet, eftersom `rdgis` bygger på det. Vill du installera allt på en gång, se `install_all.R` i repo-roten.
+
+## Vilket paket gör vad?{#vilket-paket-gor-vad}
+
+| Du vill... | Använd paketet |
+|---|---|
+| Ladda alla analyspaket på en gång | [`rd`](#rd) (paraplypaket) |
+| Allmänna hjälpfunktioner: text, filer, SCB-/regionhämtning | [`rdverktyg`](#rdverktyg) |
+| Rita diagram i Region Dalarnas diagramprofil | [`rddiagram`](#rddiagram) |
+| Hämta kartdata, jobba med geometrier, läsa GIS-filer | [`rdgis`](#rdgis) |
+| Läsa/skriva Postgres-databaser, hantera roller och rättigheter | [`rdpostgres`](#rdpostgres) |
+| Beräkna restider, isokroner eller pendlingsanalyser (pgRouting) | [`rdgeorouting`](#rdgeorouting) |
+| Hämta och lagra GTFS-trafikdata, förbereda data för r5r | [`rdgtfs`](#rdgtfs) |
+| Köra en Shiny-app i drift: databas, lösenord, telemetri | [`rdshinyappar`](#rdshinyappar) |
+| Skapa/publicera Shinyappar, webbrapporter och portaler; jobba med git/GitHub | [`rddeploy`](#rddeploy) |
+| Styra adminportalens flikar, köra schemalagda cron-jobb | [`rdadminportal`](#rdadminportal) |
+
+En enkel tumregel: **`rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar`** är de paket du använder *i* en analys eller app. **`rddeploy`** och **`rdadminportal`** handlar istället om att *driftsätta och förvalta* det du byggt — de laddas inte in av `rd` (se nästa avsnitt) och behövs normalt bara när du faktiskt ska skapa, publicera eller administrera något.
+
+## rd — paraplypaket{#rd}
+
+`rd` är ett paraplypaket utan egen kod: `library(rd)` drar in `rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar` i ett enda anrop.
+
+```r
+library(rd)
+# motsvarar: library(rdverktyg); library(rddiagram); library(rdgis);
+#            library(rdpostgres); library(rdgeorouting); library(rdgtfs);
+#            library(rdshinyappar)
+```
+
+**`rddeploy` och `rdadminportal` ingår medvetet inte** — de är drift-/publiceringsverktyg som bara en liten andel skript faktiskt behöver, och laddas in explicit när de används:
+
+```r
+library(rd)          # analyspaketen
+library(rddeploy)    # + git/GitHub, publicering
+```
+
+## rdverktyg — allmänna verktyg{#rdverktyg}
+
+Allmänna hjälpfunktioner för text, filer, SCB-/regionhämtning och andra återkommande behov — det paket du oftast laddar först i ett nytt skript, utöver det du specifikt behöver.
+
+Exempel på vad som finns:
+
+- **Regionkoder**: `hamtaregtab()`, `hamtakommuner()`, `hamtaAllaLan()`, `hamta_kommunkoder()`, `ar_alla_kommuner_i_ett_lan()` — slå upp och validera kommun-/länkoder utan att hårdkoda listor.
+- **SCB-hämtning**: `pxweb2_get_data()` m.fl. (importerat från [`pxweb2r`](pxweb2r.html), se callout-rutan ovan) samt `manader_bearbeta_scbtabeller()` för SCB-specifik efterbearbetning.
+- **Excel**: `excelfil_spara_formaterad()`, `excel_xml_las_fil()`, `hamta_excel_dataset_med_url()`.
+- **CSV/zip**: `csv_fran_zipfiler_inlasning()`, `spara_som_csv_i_zip()`.
+
+```r
+library(rdverktyg)
+kommuner_df <- hamtakommuner()
+```
+
+## rddiagram — diagrammallar{#rddiagram}
+
+ggplot2-baserade diagrammallar med Region Dalarnas gemensamma profil: färgskalor, stödlinjelogik och typografi, så att diagram i olika rapporter ser likadana ut utan att var och en behöver återskapa stilen för hand.
+
+- **Stapel- och linjediagram**: `SkapaStapelDiagram()`, `SkapaLinjeDiagram()`.
+- **Kartor**: `skapa_koropletkarta_ggplot()`.
+- **Packed-circle-diagram** (bubbeldiagram): `skapa_packed_circles()`.
+- **Färg och export**: `diagramfarger()`, `kontrastfarg_hitta()`, `ggsave_retry()` (sparar med återförsök, praktiskt på instabila nätverksdiskar).
+
+```r
+library(rddiagram)
+SkapaStapelDiagram(data, x = "kommun", y = "varde")
+```
+
+## rdgis — GIS-verktyg{#rdgis}
+
+Kartdata och geometrihjälpfunktioner för analysarbete som inte kräver en fullständig PostGIS/pgRouting-uppsättning (se [`rdgeorouting`](#rdgeorouting) för det).
+
+- **Kartdata**: `hamta_karta()` — hämtar kartdata ur geodatabasen.
+- **Geometri**: `st_centroid_within_geo()` (centroid garanterat inuti polygonen, till skillnad från `sf::st_centroid()`), `skapa_linje_langs_med_punkter()`, `st_largest_ring()`.
+- **GIS-filer ur zip-arkiv**: `las_gisfil_fran_zipfil_via_sokvag()`, `las_gisfil_fran_zipfil_via_url()`.
+
+```r
+library(rdgis)
+karta_sf <- hamta_karta("kommun")
+```
+
+## rdpostgres — PostgreSQL-verktyg{#rdpostgres}
+
+Anslutningar och administration mot Region Dalarnas Postgres-servrar — grunden som `rdgis`, `rdgeorouting` och `rdshinyappar` alla bygger vidare på för sin databasåtkomst.
+
+- **Läsa/skriva tabeller**: `postgres_tabell_till_df()`, `postgres_df_till_postgrestabell()`.
+- **Databaser och scheman**: `postgres_databas_skapa()`, `postgres_schema_skapa_om_inte_finns()`, `postgres_tabell_finns()`.
+- **Roller och rättigheter**: `postgres_anvandare_lagg_till()`, `postgres_roll_tilldela_till_anvandare()`, `postgres_grants_auto_skapa()` (automatiska grants via event triggers, så nya tabeller får rätt rättigheter utan manuellt steg).
+- **Metadata**: `postgres_tabell_uppdaterades()` — när uppdaterades en tabell senast (jämför med `pxweb2_table_updated()` i [`pxweb2r`](pxweb2r.html#halla-ett-dataset-uppdaterat), som gör motsvarande mot SCB:s API istället för en egen databas).
+
+```r
+library(rdpostgres)
+df <- postgres_tabell_till_df("mitt_schema", "min_tabell")
+```
+
+## rdgeorouting — PostGIS och pgRouting{#rdgeorouting}
+
+Bygger och kör pgRouting-grafer av vägnätet (NVDB) för restids-, avstånds- och pendlingsanalyser. Kräver en PostGIS-databas med pgRouting installerat — ett steg upp i komplexitet från `rdgis`, för analyser som faktiskt behöver ruttberäkning över ett vägnät snarare än bara geometri.
+
+- **Bygga grafen**: `pgrouting_tabell_till_pgrgraf()`, `pgrouting_installera_i_postgis_db()`.
+- **Isokroner**: `postgis_isokroner_bil()`, `postgis_isokroner_cykel()`, `postgis_isokroner_gang()`, `postgis_isokroner_elcykel()`.
+- **Pendlingsanalyser**: `pendling_natverk()` (pendlingsnätverk), `pendling_kraftfalt()` (kraftfält), `pendling_ruta()`/`pendling_ruta_karta()` (in-/utpendling på ruta).
+
+```r
+library(rdgeorouting)
+isokron_sf <- postgis_isokroner_bil(punkt_sf, minuter = c(10, 20, 30))
+```
+
+## rdgtfs — GTFS-verktyg{#rdgtfs}
+
+Hämtning, normalisering och lagring av GTFS-trafikdata (kollektivtrafikens tidtabellsformat), med versionshistorik i PostGIS och förberedelse av data för r5r-analyser.
+
+- **Hämta och validera**: `hamta_gtfs_data()`, `gtfs_validera()`, `gtfs_rensa_for_db()`.
+- **Geografisk filtrering**: `gtfs_filtrera_geografiskt()` — t.ex. bara hållplatser/linjer inom Dalarnas län.
+- **Versionshantering i databasen**: `ladda_upp_till_databas()`, `versionshantering()`, `radera_gamla_versioner()` — flera GTFS-leveranser över tid kan jämföras istället för att skriva över varandra.
+
+```r
+library(rdgtfs)
+gtfs <- hamta_gtfs_data(operator = "dalatrafik")
+```
+
+## rdshinyappar — runtime-hjälpare för Shinyappar{#rdshinyappar}
+
+Funktioner som Region Dalarnas Shiny-appar använder **i drift** — till skillnad från `rddeploy`, som hjälper dig *skapa och publicera* appen, är det här kod som körs inne i appen själv när den väl är igång.
+
+- **Lösenordshantering** (via `.Renviron`, eftersom Keyring inte fungerar på Shiny-servrarnas Linux-miljö): `shiny_get_password()`, `shiny_set_password()`, `shiny_list_passwords()`.
+- **Geodata**: `df_till_sf()` — konverterar EWKB-kolumner från Postgres till `sf`-objekt.
+- **Telemetri**: `hamta_telemetri_appar()`, `hamta_telemetri_heatmap_alla()`, `skapa_telemetry()`/`telemetri_ui()`/`telemetri_server()` — gemensam `shiny.telemetry`-loggning. Det är de här funktionerna som ligger bakom besöksstatistiken i Adminportalens flik **Statistik** (se [Adminportalens flikar](publicering.html#styra-landningssida) i Publicering-dokumentationen).
+
+```r
+library(rdshinyappar)
+con <- uppkoppling_db()   # från rdpostgres, som rdshinyappar bygger på
+```
+
+## rddeploy — deploy, git och GitHub{#rddeploy}
+
+Samlar Region Dalarnas arbetsflöden för git och GitHub, publicering av webbrapporter och portaler, samt scaffolding och publicering av Shinyappar. Bygger på `gert`, `gh` och `gitcreds` istället för handrullade git-anrop.
+
+::: {.callout-tip}
+## Det här är inte samma sak som publicering
+Funktionerna i det här avsnittet flyttar kod mellan din dator och GitHub (`main`/`master`). De har inget att göra med att **publicera** en Shinyapp, webbrapport eller dokumentationsportal till en server — det täcks av [Publicering på webben](publicering.html) (`shinyapp_publicera()`, `webbrapport_publicera()` m.fl.).
+:::
+
+### Innan du börjar: konfiguration och autentisering{#innan-du-borjar-konfiguration-och-autentisering}
+
+Två saker behöver vara på plats en gång per dator:
+
+1. **Git-identitet och GitHub-token** — samma förberedelse som för publicering. Se [Git-konfiguration på nya datorer](shiny.html#git-konfiguration-pa-nya-datorer) i Shiny-dokumentationen; den gäller lika mycket här eftersom `github_commit_push()` och `rddeploy::shinyapp_publicera()` delar samma underliggande push-mekanism.
+2. **Lokal mapp och organisation** (frivilligt, har vettiga standardvärden). rddeploy antar som standard att dina Region-Dalarna-repon ligger i `c:/gh/` (eller, på Linux/Mac, sätt ditt eget värde). Vill du ändra det, sätt i din `.Rprofile`:
+
+```r
+options(
+  rddeploy.gh_mapp    = "~/gh/",      # Region-Dalarna
+  rddeploy.gh_mapp_an  = "~/gh_an/"    # Analytikernätverket
+)
+```
+
+Kör `rddeploy::rddeploy_config_status()` när du vill se vilka värden som faktiskt gäller, och om mapparna finns:
+
+```r
+rddeploy::rddeploy_config_status()
+```
+
+### GitHub-funktioner: lista, klona, pulla, committa, pusha
+
+De vardagliga GitHub-sysslorna du annars gör via kommandoraden eller RStudios Git-flik — utan att lämna R-konsolen. Alla funktioner finns i två varianter: en grundfunktion mot **Region-Dalarna** och en `_analytikernatverket`-wrapper mot **Analytikernätverket**. Wrappern anropar alltid grundfunktionen med andra standardvärden — inget annat skiljer dem åt.
+
+| Vill du... | Funktion |
+|---|---|
+| Se vilka repon som finns | `rddeploy::github_lista_repos()` |
+| Se vilka filer som finns i ett repo | `rddeploy::github_lista_repo_filer("dokumentation")` |
+| Se vad som ändrats lokalt, innan du committar | `rddeploy::github_status_filer_lokalt_repo("dokumentation")` |
+| Committa och pusha dina ändringar | `rddeploy::github_commit_push("dokumentation")` |
+| Hämta hem andras ändringar | `rddeploy::github_pull_lokalt_repo_fran_github("dokumentation")` |
+| Klona ett repo du inte har lokalt än | `rddeploy::github_lagg_till_repo_fran_github("dokumentation")` |
+
+Allt ovan pekar mot **Region-Dalarna** som standard. Lägg till `_analytikernatverket` på funktionsnamnet för att göra samma sak mot Analytikernätverket.
+
+#### Lista repositories: `github_lista_repos()`
+
+Hämtar en lista över alla repositories hos en GitHub-organisation eller -användare. Praktiskt när du vill se vad som faktiskt finns innan du klonar något.
+
+```r
+rddeploy::github_lista_repos()
+```
+
+Skriver per default ut namnen i konsolen och returnerar resultatet osynligt. Sätt `skriv_ut = FALSE` för att få tillbaka en tibble med `namn`, `url`, `url_clone`, `privat` och `arkiverad`:
+
+```r
+repon <- rddeploy::github_lista_repos(skriv_ut = FALSE)
+sum(repon$privat)   # hur många av våra repon är privata?
+```
+
+#### Lista filer i ett repo: `github_lista_repo_filer()`
+
+Hämtar hela filträdet för ett repos default-branch i ett enda API-anrop, och kan returnera det på fyra olika sätt via `retur`: `"source"` (färdiga `source()`-rader, standard), `"url"` (rå-URL:er), `"df"` (tibble) eller `"ppt"` (anpassat för våra PowerPoint-rapporter).
+
+```r
+# Vilka .qmd-filer finns i dokumentationsportalen?
+rddeploy::github_lista_repo_filer("dokumentation", filter = ".qmd")
+```
+
+`filter` är en liten sök-DSL på filnamn:
+
+```r
+# OR: filer som nämner antingen "shiny" eller "publicering"
+rddeploy::github_lista_repo_filer("dokumentation", filter = c("shiny", "publicering"))
+
+# AND: måste innehålla "rdpaket" OCH "readme"
+rddeploy::github_lista_repo_filer("rdpaket", filter = "rdpaket&readme")
+
+# NOT: allt utom testfiler
+rddeploy::github_lista_repo_filer("rddeploy", filter = "!test")
+```
+
+#### Status på lokala ändringar: `github_status_filer_lokalt_repo()`
+
+Visar vad som skiljer din lokala kopia av ett repo från senast committade version — utan att röra något. Bra att köra som en sista koll innan du committar.
+
+```r
+rddeploy::github_status_filer_lokalt_repo("dokumentation")
+```
+
+Resultatet returneras även osynligt som en tibble (samma struktur som `gert::git_status()`).
+
+#### Committa och pusha: `github_commit_push()`
+
+Gör hela commit-push-cykeln i ett anrop: lägger till alla nya/ändrade filer, skapar ett commit-meddelande om du inte anger ett själv, pullar först (om repot har en upstream-branch), och pushar.
+
+```r
+rddeploy::github_commit_push(
+  "dokumentation",
+  commit_txt = "Skriv om GitHub-funktioner-sidan till en rdpaket-översikt"
+)
+```
+
+Utan `commit_txt` byggs ett meddelande automatiskt utifrån vilka filer som ändrats:
+
+```r
+rddeploy::github_commit_push("dokumentation")
+# → "Ändrade filer: rdpaket.qmd"
+```
+
+Finns inget att committa gör funktionen ingenting och säger det. Den skyddar dessutom mot att två pushar mot samma repo startas samtidigt — ett andra anrop medan det första kör avbryts med ett tydligt felmeddelande.
+
+#### Hämta hem ändringar: `github_pull_lokalt_repo_fran_github()`
+
+Kör `git pull` på ett eller flera lokala repon. Repon med lokala, osparade ändringar eller utan upstream-branch hoppas över (med en varning) istället för att krascha.
+
+```r
+# Ett enda repo
+rddeploy::github_pull_lokalt_repo_fran_github("dokumentation")
+
+# ALLA repon i din gh_mapp
+rddeploy::github_pull_lokalt_repo_fran_github("*")
+```
+
+#### Klona ett nytt repo: `github_lagg_till_repo_fran_github()`
+
+Klonar ett repo du inte har lokalt sedan tidigare, och kan öppna det som ett nytt RStudio-projekt direkt efteråt.
+
+```r
+rddeploy::github_lagg_till_repo_fran_github(
+  "ett-repo-du-inte-har-an",
+  oppna_rproj = TRUE
+)
+```
+
+### Publicering: Shinyappar, webbrapporter och portaler
+
+`rddeploy` innehåller också funktionerna för att skapa och publicera Shinyappar, webbrapporter och dokumentationsportaler (`shinyapp_publicera()`, `webbrapport_publicera()`, `webbsida_med_portal_skapa_med_github_repo()` m.fl.) — det täcks i sin helhet av [Publicering på webben](publicering.html), inte här.
+
+## rdadminportal — adminportal och serverdrift{#rdadminportal}
+
+Funktioner för Adminportalens flikar samt de serverskript som synkar Shiny-landningssidorna. Hanterar vilka appar och rapporter som visas, deras ikoner och beskrivningar, mot den delade adminshiny-databasen ("publik") eller lokala sudo-anrop ("intern").
+
+- **Appar och rapporter** (synlighet): `landningssida_exkludera()`, `landningssida_inkludera()`, `landningssida_lista_exkluderade()`.
+- **Ikoner**: `landningssida_ikoner_koppla()`, `landningssida_ikoner_lista()`.
+- **Beskrivningar**: `landningssida_beskrivning_koppla()`, `landningssida_beskrivning_lista()`.
+- **Nedladdning**: `landningssida_nedladdning_lista()`, `landningssida_nedladdning_ta_bort_fil()`.
+- **Cron-jobb**: `kor_cron_jobb()` — exekverar ett schemalagt datauttag.
+
+Samma funktionalitet nås normalt via Adminportalens webbgränssnitt (`samhallsanalys.ltdalarna.se/adminportal`) snarare än direkt från R — se [Styra vad som visas på landningssidan](publicering.html#styra-landningssida) för en genomgång av flikarna, och [Förvaltning av landningssidor och infrastruktur](publicering.html#forvaltning) för den skriptade varianten av samma åtgärder.
+
+```r
+library(rdadminportal)
+landningssida_exkludera("brott", server = "publik")
+```
+
+## Sammanfattning
+
+| Paket | Används till |
+|---|---|
+| `rd` | Ladda alla analyspaket på en gång |
+| `rdverktyg` | Allmänna hjälpfunktioner: text, filer, SCB-/regionhämtning |
+| `rddiagram` | Diagram i Region Dalarnas profil |
+| `rdgis` | Kartdata och geometri |
+| `rdpostgres` | Postgres-anslutningar, tabeller, roller/rättigheter |
+| `rdgeorouting` | PostGIS/pgRouting: restider, isokroner, pendling |
+| `rdgtfs` | GTFS-trafikdata, versionshantering, r5r-förberedelse |
+| `rdshinyappar` | Runtime-hjälpare i en körande Shiny-app |
+| `rddeploy` | git/GitHub, scaffolding och publicering |
+| `rdadminportal` | Adminportalens flikar, cron-jobb, serverdrift |
+| `pxweb2r` (eget repo) | Hämta statistik från en PxWeb API v2 |

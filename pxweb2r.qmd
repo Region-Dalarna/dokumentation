@@ -659,7 +659,7 @@ dataset_df <- pxweb2_get_data(
 )
 ```
 
-## Hålla ett dataset uppdaterat
+## Hålla ett dataset uppdaterat{#halla-ett-dataset-uppdaterat}
 
 Körs ett skript schemalagt (t.ex. nattligt) är det ofta onödigt att hämta om samma data varje gång. `pxweb2_table_updated()` och `pxweb2_table_needs_update()` låter dig kontrollera om SCB faktiskt lagt upp en nyare version sedan sist, innan du gör själva datahämtningen:
 
