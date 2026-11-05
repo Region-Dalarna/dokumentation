@@ -48,7 +48,7 @@ Läs avsnittet **[Förvaltning av landningssidor och infrastruktur](#forvaltning
 
 # Publicera innehåll{#publicera-innehall}
 
-Det här avsnittet är för dig som ska publicera eller ta bort innehåll. Allt sker från din regiondator via R-funktioner i *func_API.R* — du loggar aldrig in på servern.
+Det här avsnittet är för dig som ska publicera eller ta bort innehåll. Allt sker från din regiondator via R-funktioner i paketet **rddeploy** (`Region-Dalarna/rdpaket/packages/rddeploy`) — du loggar aldrig in på servern.
 
 ## Välj rätt innehållstyp
 
@@ -96,13 +96,13 @@ Tidigare publicerades alla webbrapporter via ett gemensamt repo (*samhallsanalys
 
 ```r
 # Publicera till publika servern
-webbrapport_publicera("laget_i_dalarna", target = "publik")
+rddeploy::webbrapport_publicera("laget_i_dalarna", target = "publik")
 
 # Publicera till interna servern
-webbrapport_publicera("laget_i_dalarna", target = "intern")
+rddeploy::webbrapport_publicera("laget_i_dalarna", target = "intern")
 
 # Ta bort en publicerad rapport igen
-webbrapport_avpublicera("laget_i_dalarna", target = "publik")
+rddeploy::webbrapport_avpublicera("laget_i_dalarna", target = "publik")
 ```
 
 ### Så fungerar det
@@ -141,13 +141,13 @@ Shinyappar har sitt eget, mer omfattande flöde som beskrivs i den separata Shin
 
 ```r
 # Skapa
-shinyapp_skapa_med_github_repo("appnamn")
+rddeploy::shinyapp_skapa_med_github_repo("appnamn")
 
 # Publicera
-shinyapp_publicera("appnamn", target = "publik")
+rddeploy::shinyapp_publicera("appnamn", target = "publik")
 
 # Avpublicera
-shinyapp_avpublicera("appnamn", target = "publik")
+rddeploy::shinyapp_avpublicera("appnamn", target = "publik")
 ```
 
 Precis som webbrapporterna triggar publiceringen en deploy via GitHub Actions, som deployar appen till `/srv/shiny-server/<appnamn>/` och regenererar landningssidan.
@@ -157,12 +157,12 @@ Precis som webbrapporterna triggar publiceringen en deploy via GitHub Actions, s
 En dokumentationsportal (som den här sidan) är flera `.qmd`-sidor som hör ihop och renderas **på servern** vid varje deploy. Den skapas med en egen funktion som sätter upp repo, mallar och workflow:
 
 ```r
-webbsida_med_portal_skapa_med_github_repo("dokumentation", server = "intern")
+rddeploy::webbsida_med_portal_skapa_med_github_repo("dokumentation", server = "intern")
 ```
 
 :::{.callout-important}
 ## Det här är flödet för att skriva dokumentation
-Just den dokumentation du läser nu ligger i portal-repot **`dokumentation`**, skapat med `webbsida_med_portal_skapa_med_github_repo()`. Det är det avsedda sättet att publicera intern dokumentation hos oss: varje ämnesområde blir en egen `.qmd`-sida i det repot, och de listas automatiskt på portalens startsida. Vill du lägga till eller uppdatera dokumentation är det alltså hit du går — inte till webbrapport- eller Shiny-flödet.
+Just den dokumentation du läser nu ligger i portal-repot **`dokumentation`**, skapat med `rddeploy::webbsida_med_portal_skapa_med_github_repo()`. Det är det avsedda sättet att publicera intern dokumentation hos oss: varje ämnesområde blir en egen `.qmd`-sida i det repot, och de listas automatiskt på portalens startsida. Vill du lägga till eller uppdatera dokumentation är det alltså hit du går — inte till webbrapport- eller Shiny-flödet.
 :::
 
 ### Vad ska med, och var hamnar det?
@@ -194,17 +194,18 @@ När du pushat till deploy-branchen renderas allt på servern och portalen blir 
 
 ### Lägga till en ny sida i en befintlig portal
 
-Använd `dokumentation_sida_skapa()` — det är den avsedda metoden för att skapa nya sidor i ett portal-repo, och i praktiken för `dokumentation`-repot, som är det enda vi använder för tillfället.
+Använd `rddeploy::dokumentation_sida_skapa()` — det är den avsedda metoden för att skapa nya sidor i ett portal-repo, och i praktiken för `dokumentation`-repot, som är det enda vi använder för tillfället.
 
 ```r
-dokumentation_sida_skapa(
+rddeploy::dokumentation_sida_skapa(
   titel       = "Publicering",
-  undertitel  = "Hur vi publicerar rapporter, webbsidor med portal och Shinyappar till våra servrar — samt hur landningssidorna fungerar"
-  beskrivning = "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: statiska webbrapporter, dokumentationsportaler och Shinyappar. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man styr exkluderingar och ikoner."
-author: "Samhällsanalys, Region Dalarna",
+  undertitel  = "Hur vi publicerar rapporter, webbsidor med portal och Shinyappar till våra servrar — samt hur landningssidorna fungerar",
+  beskrivning = "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: statiska webbrapporter, dokumentationsportaler och Shinyappar. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man styr exkluderingar och ikoner.",
   filnamn     = "publicering"
 )
 ```
+
+Funktionen sätter bara `title`/`subtitle`/`listing-description` i YAML-headern — `author` (och andra fält du vill ha med, t.ex. `date: last-modified`) lägger du till för hand i filen efteråt, precis som i denna sidas egen YAML-header.
 
 :::{.callout-tip}
 ## Vilken parameter blir vad?
@@ -224,7 +225,7 @@ Funktionen:
 2. Kontrollerar att portal-repot (`dokumentation` som default) finns lokalt, och att filen inte redan finns (skriver aldrig över av misstag).
 3. Skapar `.qmd`-filen med rätt YAML-header ifylld (`title`, `subtitle`, `listing-description`) och ett grundskelett med rubrikerna **Inledning**, **Struktur** och **Sammanfattning** — samma struktur som övriga sidor i portalen följer.
 4. Öppnar filen i RStudio, redo att skrivas klart.
-5. Committar och pushar åt dig om du sätter `commit_och_push = TRUE` — annars påminner den om att köra `github_commit_push("dokumentation")` när du är klar.
+5. Committar och pushar åt dig om du sätter `commit_och_push = TRUE` — annars påminner den om att köra `rddeploy::github_commit_push("dokumentation")` när du är klar.
 
 :::{.callout-note}
 ## Går det att skapa filen för hand istället?
@@ -335,7 +336,7 @@ Repot `serverdrift` hade tidigare en egen, separat kopia av samma fil (för att 
 
 Tre saker kan styras per app/rapport, utan att röra dess egen kod: **synlighet** (dölja/visa), **ikon**, och **beskrivningstext**. Normalfallet är att göra det i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`, fliken "Appar och rapporter") — se [Styra vad som visas på landningssidan](#styra-landningssida) ovan i det användarvända avsnittet. Nedan beskrivs samma saker skriptat i R, för den som t.ex. vill ändra flera poster i rad eller köra det från ett annat skript.
 
-Funktionerna ligger i paketet **`rdadminportal`** (inte *func_API.R*):
+Funktionerna ligger i paketet **`rdadminportal`**:
 
 ```r
 library(rdadminportal)
@@ -370,11 +371,6 @@ Ikonklassen måste börja med `ti-` och vara en giltig Tabler-klass — bläddra
 En mapp visas bara om den strukturellt kvalificerar (en app kräver `ui.R`/`app.R` direkt i roten; en rapport kräver `index.html`). Något som inte uppfyller det syns aldrig på landningssidan, oavsett inställningar ovan — att dölja eller sätta ikon/beskrivning på sådant är därför ofarligt men utan effekt.
 :::
 
-:::{.callout-note}
-## Gammal dokumentation kan nämna SSH-baserade funktioner med samma namn
-*func_API.R* har fortfarande kvar en äldre uppsättning funktioner med identiska namn (`landningssida_exkludera()`, `landningssida_ikoner_koppla()` m.fl.), som pratar med servern via SSH och lagrar allt i textfiler (`/etc/landningssida/*.txt`). De beskriver inte längre hur systemet faktiskt fungerar — använd `rdadminportal`-paketet (ovan) istället.
-:::
-
 ## Serverside-komponenter{#serverside-komponenter}
 
 För fullständighetens skull — så här hänger delarna ihop på servern:
@@ -397,7 +393,7 @@ Det här avsnittet dokumenterar hur portal- och rapportpubliceringen fungerar un
 
 ### Mallar i depot
 
-Portal-strukturen hålls som mallar i `Region-Dalarna/depot`, under `mallar/webbsida_portal/`, och hämtas via `depot_hamta_fran()` / `depot_skriv_mall_fran()` (se *func_API.R*) snarare än `raw.githubusercontent.com` rakt av — samma Fastly-cache-problematik som motiverade `source_utan_cache()` gäller här också.
+Portal-strukturen hålls som mallar i `Region-Dalarna/depot`, under `mallar/webbsida_portal/`, och hämtas via `rddeploy::depot_hamta_fran()` / `rddeploy::depot_skriv_mall_fran()` snarare än `raw.githubusercontent.com` rakt av — de går via GitHub Contents-API:t med raw-accept, vilket förbigår Fastly-CDN:en som annars kan servera en gammal version i några minuter efter en push.
 
 ```
 depot/

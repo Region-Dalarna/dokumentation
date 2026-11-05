@@ -55,7 +55,7 @@ Som vanligt användare behöver du **inte** läsa detta avsnitt — Shiny-server
 
 
 # Shinyappar{#shinyappar}
-Här beskrivs hur man skapar, reviderar och publicerar Shinyappar. Arbetet sker lokalt på regiondatorn: man pullar ner repot för appen, gör sina ändringar och commit:ar och pushar till GitHub. Själva publiceringen till Shiny-servern sköts av GitHub Actions och triggas av funktionen *shinyapp_publicera()* i filen *func_API.R* — du behöver alltså aldrig logga in på servern i det vardagliga arbetet. Detta gäller den publika Shiny-servern i DMZ (åtkomlig externt). Arbetsprocessen för den interna Shiny-servern är inte klar ännu.
+Här beskrivs hur man skapar, reviderar och publicerar Shinyappar. Arbetet sker lokalt på regiondatorn: man pullar ner repot för appen, gör sina ändringar och commit:ar och pushar till GitHub. Själva publiceringen till Shiny-servern sköts av GitHub Actions och triggas av funktionen `rddeploy::shinyapp_publicera()` — du behöver alltså aldrig logga in på servern i det vardagliga arbetet. Detta gäller den publika Shiny-servern i DMZ (åtkomlig externt). Arbetsprocessen för den interna Shiny-servern är inte klar ännu.
 
 ## TL;DR
 
@@ -63,26 +63,26 @@ Snabbstart för dig som vill komma igång direkt:
 
 * **Skapa en ny Shinyapp:**
 ```r
-shinyapp_skapa_med_github_repo("appnamn")
+rddeploy::shinyapp_skapa_med_github_repo("appnamn")
 ```
 *appnamn* blir både repo-namn och url på webben — håll det kort och koncist, men inte så snävt att det stänger dörren för närliggande appar.
 
 * **Hämta senaste versionen innan du börjar revidera:**
 ```r
-github_pull_lokalt_repo_fran_github("appnamn")
+rddeploy::github_pull_lokalt_repo_fran_github("appnamn")
 ```
 
 * **Commit + push när du är klar med ändringarna:**
 ```r
-github_commit_push("appnamn", commit_txt = "Beskrivning av ändringen")
+rddeploy::github_commit_push("appnamn", commit_txt = "Beskrivning av ändringen")
 ```
 
 * **Publicera till Shiny-servern när `master` är redo:**
 ```r
-shinyapp_publicera("appnamn")
+rddeploy::shinyapp_publicera("appnamn")
 ```
 
-Alla funktioner ovan finns i *func_API.R*. För datahämtning från våra databaser, se [Datainhämtning från våra postgres-databaser](#datainhamtning-postgres).
+Alla funktioner ovan finns i paketet **rddeploy** (`Region-Dalarna/rdpaket/packages/rddeploy`). För datahämtning från våra databaser, se [Datainhämtning från våra postgres-databaser](#datainhamtning-postgres).
 
 ### Förberedelser på en ny dator
 
@@ -94,16 +94,17 @@ Innan du kan börja jobba med Shinyappar på en ny dator behöver två saker var
 
 2. **Git-konfiguration** (se avsnittet *Git-konfiguration på nya datorer* nedan).
 
-Samma app visar också vad som behöver konfigureras för GitHub i RStudio så att funktionerna i *func_API.R* fungerar. Det rekommenderas varmt — se dokumentationen genom att köra *G:/skript/dokumentation/index_shinyapp.R* och klicka *Run App*.
+Samma app visar också vad som behöver konfigureras för GitHub i RStudio så att funktionerna i **rddeploy** fungerar. Det rekommenderas varmt — se dokumentationen genom att köra *G:/skript/dokumentation/index_shinyapp.R* och klicka *Run App*.
 
-För att kunna hämta data behöver dina Shinyappar source:a in hjälpfunktionerna från *func_shinyappar.R*:
+För att kunna hämta data behöver dina Shinyappar hjälpfunktionerna i paketet **rdshinyappar**:
 ```r
-source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_shinyappar.R", encoding = "utf-8", echo = FALSE)
+library(rdshinyappar)
 ```
+(installeras en gång per app, se [Installera ett eget internt paket från GitHub](#installera-internt-paket) nedan — nya appar som skapas med `shinyapp_skapa_med_github_repo()` får den installerad automatiskt, så länge standardparametern `telemetri = TRUE` inte stängs av).
 
 ### Git-konfiguration på nya datorer
 
-På en ny dator (eller en dator där du inte tidigare har jobbat med git från R) behöver `user.name` och `user.email` vara satta i den globala git-konfigurationen. Annars kan `shinyapp_publicera()` failera vid själva merge:n med felmeddelandet:
+På en ny dator (eller en dator där du inte tidigare har jobbat med git från R) behöver `user.name` och `user.email` vara satta i den globala git-konfigurationen. Annars kan `rddeploy::shinyapp_publicera()` failera vid sin `git pull` av arbetsbranchen (om den inte blir en fast-forward och git behöver skapa en merge-commit) med felmeddelandet:
 
 > `libgit2: Signature cannot have an empty name or email`
 
@@ -114,7 +115,7 @@ git config --global user.name "Förnamn Efternamn"
 git config --global user.email "din.epost@regiondalarna.se"
 ```
 
-**Utöver detta** behöver `github_commit_push()` en giltig GitHub-nyckel i `keyring`, sparad under service-namnet `github_token`. Den används för **både** `git pull` och `git push` mot GitHub. Sätt den en gång per dator:
+**Utöver detta** behöver `rddeploy::github_commit_push()` en giltig GitHub-nyckel i `keyring`, sparad under service-namnet `github_token`. Den används för **både** `git pull` och `git push` mot GitHub. Sätt den en gång per dator:
 
 ```r
 keyring::key_set("github_token", username = "ditt-github-anvandarnamn")
@@ -126,7 +127,7 @@ Saknas nyckeln stoppar funktionen numera med ett tydligt felmeddelande direkt, i
 
 :::{.callout-warning}
 ## Kom ihåg — privata repon kräver riktig autentisering
-`github_commit_push()` har historiskt även kunnat luta sig mot en separat, äldre nyckel under service-namnet `github` för `git pull`. Den nyckeln har visat sig i vissa fall vara ogiltig eller sakna rätt behörighet — vilket ändå inte märktes, eftersom `pull` mot **publika** repon lyckas oavsett om autentiseringen är giltig. Först vid pull mot ett **privat** repo (t.ex. en dokumentationsportal skapad med `webbsida_med_portal_skapa_med_github_repo()`) slog felet igenom, med det kryptiska felmeddelandet `too many redirects or authentication replays`. Funktionen använder numera `github_token` konsekvent för både pull och push, så detta ska inte längre inträffa — men om felet ändå dyker upp, kontrollera att `github_token` i keyring verkligen innehåller ett giltigt Personal Access Token med `repo`-scope.
+`rddeploy::github_commit_push()` har historiskt även kunnat luta sig mot en separat, äldre nyckel under service-namnet `github` för `git pull`. Den nyckeln har visat sig i vissa fall vara ogiltig eller sakna rätt behörighet — vilket ändå inte märktes, eftersom `pull` mot **publika** repon lyckas oavsett om autentiseringen är giltig. Först vid pull mot ett **privat** repo (t.ex. en dokumentationsportal skapad med `rddeploy::webbsida_med_portal_skapa_med_github_repo()`) slog felet igenom, med det kryptiska felmeddelandet `too many redirects or authentication replays`. Funktionen använder numera `github_token` konsekvent för både pull och push, så detta ska inte längre inträffa — men om felet ändå dyker upp, kontrollera att `github_token` i keyring verkligen innehåller ett giltigt Personal Access Token med `repo`-scope.
 :::
 
 ## En kort introduktion till Shiny
@@ -181,7 +182,7 @@ Alla våra Shiny‑appar följer i huvudsak samma struktur:
 - `R/` innehåller hjälpfunktioner och moduler som används i `ui.R` och `server.R`. Det kan vara allt från funktioner för att hämta data, bearbeta data, skapa diagram eller kartor, eller moduler som skapar återanvändbara UI‑komponenter.
 - `www/` är en mapp med innehåll som används för att stilsätta Shinyappen. Här ligger t.ex. favicon som blir den lilla ikonen på fliken i webbläsaren som appen startas i, CSS-fil(er) för stilsättning som standardiseras, loggor, ikoner, bilder m.m. som används för att bidra till Shinyappens layout. Inom kort hoppas vi ha en standardiserad CSS-fil som finns med när appen skapas.
 
-Att kunna orientera sig i denna struktur är ofta tillräckligt för att hitta **rätt plats att göra en ändring på**. Den här strukturen är en vedertagen struktur i Shinyappar och skapas automatiskt när en ny Shinyapp skapas med funktionen *shinyapp_skapa_med_github_repo()* som finns i *func_API.R*.
+Att kunna orientera sig i denna struktur är ofta tillräckligt för att hitta **rätt plats att göra en ändring på**. Den här strukturen är en vedertagen struktur i Shinyappar och skapas automatiskt när en ny Shinyapp skapas med funktionen `rddeploy::shinyapp_skapa_med_github_repo()`.
 
 ### Kunna följa flödet: input → server → output
 
@@ -237,12 +238,12 @@ Det mesta sker lokalt, i `ui.R`, `server.R` och ibland `global.R`.
 
 ### Rekommenderat arbetssätt vid revidering
 
-1. Kör `github_pull_lokalt_repo_fran_github()`
+1. Kör `rddeploy::github_pull_lokalt_repo_fran_github()`
 2. Identifiera vad som ska ändras (UI, logik eller data)
 3. Gör ändringen lokalt
 4. Testkör appen lokalt
 5. Commit + push till `master`
-6. Publicera färdig version via `shinyapp_publicera()`
+6. Publicera färdig version via `rddeploy::shinyapp_publicera()`
 
 ## Rekommenderade resurser för introduktion till Shiny
 
@@ -268,28 +269,30 @@ En praktisk genomgång som visar hur Shiny‑appar vanligtvis struktureras och h
 
 En mer kursliknande introduktion med tydlig progression från grunder till lite mer avancerade begrepp. Passar bra för den som vill läsa steg‑för‑steg.
 
-## Skapa en Shinyapp
-För att underlätta skapandet av nya Shinyappar har vi tagit fram ett skript som skapar ett R-projekt, ett lokalt git-repository och ett repository på Github. Strukturen är anpassad för att kunna publicera rapporten enkelt med hjälp av Github Actions och runners (se mer om publicering av rapporter nedan). Mappar och filer som behövs till det skapas av funktionen och även den struktur som vi brukar använda i våra Shiny-appar. Funktionen heter shinyapp_skapa_med_github_repo() och behöver vanligtvis enbart ett repository-namn som parameter för att kunna köras, övriga parametrar kan lämnas orörda (om man har sina lokala github-repositories på *c:/gh/*). Repository-namnet (första parametern som heter github_repo) kommer också att utgöra app-namnet när appen publiceras på Shiny-servern.
+## Skapa en Shinyapp {#skapa-en-shinyapp}
+För att underlätta skapandet av nya Shinyappar finns funktionen `rddeploy::shinyapp_skapa_med_github_repo()`, som skapar ett R-projekt, ett lokalt git-repository och ett repository på Github. Strukturen är anpassad för att kunna publicera rapporten enkelt med hjälp av Github Actions och runners (se mer om publicering av rapporter nedan). Mappar och filer som behövs till det skapas av funktionen och även den struktur som vi brukar använda i våra Shiny-appar. Funktionen behöver vanligtvis enbart ett repository-namn som parameter för att kunna köras, övriga parametrar kan lämnas orörda (om man har sina lokala github-repositories på *c:/gh/*). Repository-namnet (första parametern som heter github_repo) kommer också att utgöra app-namnet när appen publiceras på Shiny-servern.
 ```r
-shinyapp_skapa_med_github_repo("appnamn")
+rddeploy::shinyapp_skapa_med_github_repo("appnamn")
 ```
 skapar alltså ett R-projekt, ett lokalt git-repository, ett Github-repository och när den publiceras en Shiny-app som heter **appnamn** och som kommer att få webb-adressen *https://shiny.regiondalarna.se/brott*. Skriptet skapar alltså en lokal mapp, ett github-repository samt de mappar och filer som behövs. Har man redan skript (tex server.R och UI.R) så kan man med fördel skapa Shinyappen med skriptet enligt ovan och i efterhand kopiera de filer man redan har till mappen.
 
-## Flöde för att uppdatera Shinyapp respektive publicera en ny version
+Ska appen istället importeras från ett befintligt externt repo (t.ex. ett som andra myndigheter publicerar, som FoHM:s NCD-SIM) utan att vi skriver om dess struktur, används `rddeploy::shinyapp_skapa_med_github_repo_forka_befintligt("appnamn", kalla_repo_url = "https://github.com/annan-org/kalla-repo.git")` — den hämtar in källkoden till en `app/`-undermapp via `git subtree` istället, se callout-rutan om detta undantag under [Appfilerna ligger i repo-roten](#appfilerna-ligger-i-repo-roten).
 
-Den branch vi jobbar i är `master`. Den kommer inte att publiceras till Shinyservern och tillgängliggöras publikt. När vi känner att `master` är färdig för att publicera publikt kör vi skriptet *shinyapp_publicera()* med namnet på appen som enda parameter. Då merge:as `master` in i produktionsbranchen (`publicera-publik` för publika servern) så att dessa brancher blir likadana. Därefter kan man fortsätta utveckla `master` till man känner att den nya versionen är redo att publicera och då kör man funktionen *shinyapp_publicera()* igen. Uppdatering av appen sker på samma sätt som andra Github-repositories, man kör pull innan man börjar för att säkerställa att man har senaste versionen från Github:
+## Flöde för att uppdatera Shinyapp respektive publicera en ny version {#flode-for-att-uppdatera-shinyapp-respektive-publicera-en-ny-version}
+
+Den branch vi jobbar i är normalt `master` (funktionerna läser i praktiken av vilken default-branch repot har, så `main` fungerar lika bra för ett nytt repo). Den kommer inte att publiceras till Shinyservern och tillgängliggöras publikt. Uppdatering av appen sker på samma sätt som andra Github-repositories, man kör pull innan man börjar för att säkerställa att man har senaste versionen från Github:
 ```r
-github_pull_lokalt_repo_fran_github("appnamn")
+rddeploy::github_pull_lokalt_repo_fran_github("appnamn")
 ```
 Därefter gör man sina revideringar och när man känner sig klar kan man köra en commit och push till Github:
 ```r
-github_commit_push("appnamn", commit_txt = "Ny knapp med funktionen att kunna ladda ner hela dataset.")
+rddeploy::github_commit_push("appnamn", commit_txt = "Ny knapp med funktionen att kunna ladda ner hela dataset.")
 ```
 Detta pushar bara till `master` och triggar **ingen** deploy — `master` är alltid säker att pusha till. För att faktiskt publicera ändringen till Shiny-servern kör man därefter:
 ```r
-shinyapp_publicera("appnamn")
+rddeploy::shinyapp_publicera("appnamn")
 ```
-Det är detta steg som merge:ar `master` in i produktionsbranchen (`publicera-publik`) och pushar den, vilket i sin tur startar GitHub Actions.
+Funktionen läser vilken server appen hör till ur `_publicering_till_server.yml` i repot (`"publik"` eller `"intern"`, se [Struktur för våra Shiny-repositories](#struktur-for-vara-shiny-repositories)) och trycker över `master`s aktuella commit till produktionsbranchen (`publicera-publik`/`publicera-intern`) med en **force push** — inte en merge. Produktionsbranchen blir alltså efteråt identisk med `master`, och den force-pushen är det som startar GitHub Actions.
 
 Då startas GitHub Actions automatiskt och kör:
 ```bash
@@ -297,26 +300,26 @@ shiny_deploy.sh "$TEMP_DIR"
 ```
 Appen skjuts ut till Shiny-servern och den nya versionen är i produktion.
 
-**No-op-skydd:** Om `master` redan är identisk med produktionsbranchen när merge:n körs (t.ex. om man kör `shinyapp_publicera()` två gånger utan ändringar emellan) skapar funktionen automatiskt en tom commit innan push. Det säkerställer att GitHub Actions triggas även när merge:n inte producerar nya commits — annars skulle deployen tystas och appen riskera att ligga kvar på en gammal version utan att man märker det. Commit-meddelandet är medvetet hyphen-separerat (`Trigga-deploy-publicera-publik`) eftersom Windows cmd.exe annars tokeniserar meddelandet på mellanslag och parenteser, vilket bröt funktionen tidigare.
+**Skydd mot missad publicering:** Är `master` redan identisk med produktionsbranchen (samma commit) gör funktionen **ingenting** och talar om det — det finns inget att publicera. Vill du tvinga fram en ny deploy ändå (t.ex. för att testa om ett serverproblem, utan någon kodändring) anger du `tvinga_omdeploy = TRUE`; då skriver funktionen en liten triggerfil och committar den direkt på produktionsbranchen, bara för att ge GitHub Actions en ny commit att reagera på.
 
-**Viktigt:** Merge tar aldrig bort brancher. Både `master` och produktionsbranchen finns kvar efter merge.
+**Viktigt:** Force-pushen skriver bara om produktionsbranchens spets för att matcha `master` — den tar aldrig bort någon branch. Både `master` och produktionsbranchen finns kvar efteråt.
 
 ### Avpublicera en app
 
 Om en app ska tas bort från servern används:
 ```r
-shinyapp_avpublicera("appnamn")
+rddeploy::shinyapp_avpublicera("appnamn")
 ```
-Funktionen triggar `avpublicera.yml`, som kör `sudo rm -rf` på app-katalogen och startar om Shiny Server. Repot på GitHub påverkas inte — du kan publicera igen när du vill.
+Funktionen frågar interaktivt (du skriver in appnamnet igen som bekräftelse) och triggar sedan `avpublicera.yml`, som kör `sudo rm -rf` på app-katalogen och startar om Shiny Server. Repot på GitHub påverkas inte — du kan publicera igen när du vill.
 
 ### Flytta en app mellan servrarna
 
 ```r
-shinyapp_flytta("appnamn", till = "intern")   # eller till = "publik"
+rddeploy::shinyapp_flytta("appnamn")
 ```
-Funktionen **publicerar på målservern först** och river källservern först när den nya appen svarat HTTP 200 — så man hamnar aldrig utan app. Testa den gärna första gången på `test_nya_deploy`, inte på en skarp app, så att du ser hela förloppet i lugn och ro.
+Funktionen avgör själv var appen ligger idag (via `_publicering_till_server.yml`, eller genom att pinga båda servrarna om filen saknas) och flyttar till den **andra** servern — det finns inget `till`-argument att ange. Den **publicerar på målservern först** och river källservern först när den nya appen svarat HTTP 200 — så man hamnar aldrig utan app. Testa den gärna första gången på `test_nya_deploy`, inte på en skarp app, så att du ser hela förloppet i lugn och ro.
 
-## Struktur för våra Shiny-repositories
+## Struktur för våra Shiny-repositories {#struktur-for-vara-shiny-repositories}
 
 Varje repo har denna struktur:
 ```
@@ -345,7 +348,7 @@ repo/
 └── repo.Rproj
 ```
 
-### Appfilerna ligger i repo-roten
+### Appfilerna ligger i repo-roten {#appfilerna-ligger-i-repo-roten}
 
 Till skillnad från tidigare ligger `ui.R`, `server.R`, `global.R`, `R/` och `www/` direkt i repo-roten — inte i någon `app/`-undermapp. Det är hela repo-roten som deployas till Shiny-servern via GitHub Actions.
 
@@ -355,7 +358,7 @@ Bredvid appfilerna ligger renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) som s
 
 :::{.callout-note}
 ## Undantag: appar importerade från ett externt repo
-En app som är hämtad från ett externt repo (t.ex. via `git subtree`, som NCD-SIM är från FoHM) kan ha kvar sin ursprungliga struktur med appfilerna i en `app/`-undermapp, om vi inte vill eller bör skriva om den vid import. I de fallen pekar repots `deploy.yml` på undermappen istället för repo-roten (`TEMP_DIR="${GITHUB_WORKSPACE}/app"`), vilket flattar strukturen vid deploy så att servern ändå ser appfilerna direkt i sin mapp. Det är en medveten avvikelse för just den typen av app, inte ett tecken på att strukturen ovan inte gäller.
+En app som är hämtad från ett externt repo (t.ex. via `git subtree`, som NCD-SIM är från FoHM) kan ha kvar sin ursprungliga struktur med appfilerna i en `app/`-undermapp, om vi inte vill eller bör skriva om den vid import. Skapas repot med `rddeploy::shinyapp_skapa_med_github_repo_forka_befintligt()` (se [Skapa en Shinyapp](#skapa-en-shinyapp)) sätts detta upp automatiskt. I de fallen pekar repots `deploy.yml` på undermappen istället för repo-roten (`TEMP_DIR="${GITHUB_WORKSPACE}/app"`), vilket flattar strukturen vid deploy så att servern ändå ser appfilerna direkt i sin mapp. Det är en medveten avvikelse för just den typen av app, inte ett tecken på att strukturen ovan inte gäller.
 :::
 
 #### global.R
@@ -404,12 +407,9 @@ Varje Shiny-applikation ligger i ett eget GitHub-repo med tre brancher som fylle
 ### 2. publicera-publik / publicera-intern – produktionsbrancher (deploy-trigger)
 
 * En push till `publicera-publik` deployar till den publika servern, en push till `publicera-intern` till den interna.
-* Du skapar eller uppdaterar dem inte för hand — `shinyapp_publicera()` och `shinyapp_flytta()` sköter merge och push åt dig.
+* Du skapar eller uppdaterar dem inte för hand — `rddeploy::shinyapp_publicera()` och `rddeploy::shinyapp_flytta()` sköter force-pushen åt dig (se [Flöde för att uppdatera Shinyapp respektive publicera en ny version](#flode-for-att-uppdatera-shinyapp-respektive-publicera-en-ny-version)).
 * När en av brancherna uppdateras uppdateras också motsvarande appkatalog på rätt Shiny-server: `/srv/shiny-server/<appnamn>`.
-
-:::{.callout-note}
-Vid **första** publiceringen av en ny app sker två deployer: funktionen skapar produktionsbranchen och pushar den, och pushar sedan själva merge:n från `master`. Det är väntat beteende, inte ett fel. Efterföljande publiceringar ger en enda deploy.
-:::
+* Produktionsbranchen skapas automatiskt av `shinyapp_publicera()` vid **första** publiceringen — inget separat steg behövs.
 
 ### 3. (Valfritt) andra feature-brancher
 
@@ -447,7 +447,7 @@ renv::install("paketnamn@1.2.3")    # specifik version
 Detta rör bara appens *lokala* bibliotek. `renv.lock` är ännu orörd, så inget är publicerat.
 
 :::{.callout-note}
-#### Installera ett eget internt paket från GitHub (t.ex. rdshinyappar, rdverktyg)
+#### Installera ett eget internt paket från GitHub (t.ex. rdshinyappar, rdverktyg) {#installera-internt-paket}
 
 Våra interna R-paket ligger inte i egna repon utan som undermappar i monorepot **rdpaket** (`packages/rd`, `packages/rdshinyappar`, `packages/rdverktyg` osv.). `renv::install()` behöver då hela sökvägen till paketmappen, inte bara `org/repo`:
 
@@ -456,7 +456,7 @@ renv::install("Region-Dalarna/rdpaket/packages/rdshinyappar")
 renv::install("Region-Dalarna/rdpaket/packages/rdverktyg")
 ```
 
-Är repot privat krävs samma GitHub-autentisering som för `github_commit_push()` m.fl. — en giltig token i `keyring` under service-namnet `github_token` (se avsnittet *Git-konfiguration på nya datorer* ovan). renv hittar den automatiskt via samma mekanism som `usethis`/`gert` använder, så inget extra behöver sättas upp om du redan konfigurerat det för de vanliga GitHub-funktionerna.
+Är repot privat krävs samma GitHub-autentisering som för `rddeploy::github_commit_push()` m.fl. — en giltig token i `keyring` under service-namnet `github_token` (se avsnittet *Git-konfiguration på nya datorer* ovan). renv hittar den automatiskt via samma mekanism som `usethis`/`gert` använder, så inget extra behöver sättas upp om du redan konfigurerat det för de vanliga GitHub-funktionerna.
 
 Resten av flödet är identiskt med ett CRAN-paket: testa lokalt, `renv::snapshot()` när du är nöjd, commit + publicera. renv skriver då in GitHub-källan (repo, undermapp, commit-sha) i `renv.lock` istället för en CRAN-repository-post, så att exakt samma commit återskapas vid nästa `renv::restore()` — även på servern vid deploy.
 :::
@@ -536,7 +536,7 @@ Vill du veta mer om hur renv fungerar på servern — den delade paketcachen, hu
 Det finns en portöppning från Shiny-servern som möjliggör inhämtning av data från någon av våra postgres-databaser på wfalmitvs526, såsom *geodata*, *oppna_data* m.fl. Eftersom dessa databaser ajourhålls säkerställer vi att det alltid är aktuell data i våra Shinyappar.
 
 ### Lösenordshantering
-För att inte spara lösenord direkt i skripten så använder vi .Renviron lokalt på våra datorer för testning, samt samma fil på Shiny-servern i produktion. Den senare måste sparas med användaren *shiny* för att det ska fundera när Shinyapparna körs på servern, då det är användaren *shiny* som kör apparna. Keyring-paketet som används för just detta ändamål i andra sammanhang fungerar inte på Shiny-servern, därav en annan lösning. Det har skapats fyra funktioner som sköter lösenordshanteringen för Shinyappar, dessa funktioner ligger i filen *func_shinyappar.R* och heter:
+För att inte spara lösenord direkt i skripten så använder vi .Renviron lokalt på våra datorer för testning, samt samma fil på Shiny-servern i produktion. Den senare måste sparas med användaren *shiny* för att det ska fundera när Shinyapparna körs på servern, då det är användaren *shiny* som kör apparna. Keyring-paketet som används för just detta ändamål i andra sammanhang fungerar inte på Shiny-servern, därav en annan lösning. Det finns fyra funktioner som sköter lösenordshanteringen för Shinyappar, i paketet **rdshinyappar**:
 ```r
 shiny_set_password("service")
 shiny_get_password("service")
@@ -561,7 +561,7 @@ Detta gör man en gång per dator/användare (lokalt vid testning) och, vid beho
 
 :::{.callout-warning}
 ## Kom ihåg
-Om din app ska hämta sekretessbelagd data eller data för ruttanalyser räcker det inte att bara source:a in *func_shinyappar.R* — du måste **också** ha konfigurerat *shiny_las_sekretess* enligt ovan, annars failar uppkopplingen mot databasen även om *shiny_las* fungerar utmärkt för övriga uttag.
+Om din app ska hämta sekretessbelagd data eller data för ruttanalyser räcker det inte att bara `library(rdshinyappar)` — du måste **också** ha konfigurerat *shiny_las_sekretess* enligt ovan, annars failar uppkopplingen mot databasen även om *shiny_las* fungerar utmärkt för övriga uttag.
 :::
 
 Till skillnad från de vanliga uttagen räcker det inte att bara ange databasnamnet när man kopplar upp sig — eftersom inloggningen sker med en annan användare än standard måste man också ange `db_user`-parametern explicit:
@@ -672,7 +672,7 @@ Eftersom trafiken är krypterad redan när TLS-handshaken sker kan brandväggen 
 | `*.actions.githubusercontent.com` | 443 | TCP | GitHub Actions runner — hämtar job-payloads och artefakter (varierande subdomäner) |
 | `objects.githubusercontent.com` | 443 | TCP | Nedladdning av releaser från GitHub (t.ex. runner-uppdateringar) |
 | `codeload.github.com` | 443 | TCP | Klonar repon (används av `actions/checkout` i workflowen) |
-| `raw.githubusercontent.com` | 443 | TCP | Läser råa filer från GitHub (t.ex. `func_shinyappar.R`) |
+| `raw.githubusercontent.com` | 443 | TCP | Läser råa filer från GitHub (t.ex. binärfiler som `rddeploy::depot_hamta_fran()` hämtar från repot `depot`) |
 | `WFALMITVS526` | 5432 | TCP | PostGIS-databasen på port 5432/TCP |
 
 : Portöppningar och nätverksregler
@@ -1085,9 +1085,13 @@ echo $HOME
 ```bash
 R
 ```
-3. Kör följande R-kod för att lägga in lösenordet för tjänsten `shiny_las` (läs från databasen), ladda först in funktionerna från github:
+3. Kör följande R-kod för att lägga in lösenordet för tjänsten `shiny_las` (läs från databasen). Detta är ett systemövergripande steg (inte knutet till någon enskild apps renv-projekt), så paketet **rdshinyappar** behöver finnas i systemets R-bibliotek — installera det en gång om det saknas:
 ```r
-source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_shinyappar.R")
+if (!requireNamespace("rdshinyappar", quietly = TRUE)) {
+  install.packages("remotes", repos = "https://cloud.r-project.org")
+  remotes::install_github("Region-Dalarna/rdpaket", subdir = "packages/rdshinyappar")
+}
+library(rdshinyappar)
 ```
 och sedan
 ```r
@@ -1915,14 +1919,14 @@ För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalar
 
 # Sammanfattning
 
-* En ny Shinyapp skapas från scratch med funktionen `shinyapp_skapa_med_github_repo("appnamn")` som finns i *func_API.R*.
-* På en ny dator: kör `git config --global user.name "..."` och `git config --global user.email "..."` så att `shinyapp_publicera()` kan skapa merge-commits.
+* En ny Shinyapp skapas från scratch med funktionen `rddeploy::shinyapp_skapa_med_github_repo("appnamn")` (paketet **rddeploy** i monorepot `Region-Dalarna/rdpaket`).
+* På en ny dator: kör `git config --global user.name "..."` och `git config --global user.email "..."` så att `rddeploy::shinyapp_publicera()` kan göra en icke-fast-forward `git pull` av arbetsbranchen utan att faila.
 * Vi arbetar vanligtvis i `master` och gör commits och pushar till repositoryt på Github.
 * Vid behov kan vi arbeta i andra utvecklings-brancher som sedan mergas in i `master`.
-* Publicera genom att merge:a `master` → produktionsbranchen med funktionen `shinyapp_publicera("appnamn")` som finns i *func_API.R* (`publicera-publik` för publika servern, `publicera-intern` för den interna).
+* Publicera genom att force-pusha `master` → produktionsbranchen med funktionen `rddeploy::shinyapp_publicera("appnamn")` (`publicera-publik` för publika servern, `publicera-intern` för den interna).
 * En push till produktionsbranchen triggar deployment via GitHub Actions som sköter deploy till `/srv/shiny-server/`.
 * Shiny-koden ligger direkt i repo-roten (ingen `app/`-undermapp), med renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) bredvid. Se [renv-miljö på Shiny-servern](#renv-shinyserver).
-* En app tas bort med `shinyapp_avpublicera("appnamn")` och flyttas mellan servrarna med `shinyapp_flytta("appnamn", till = ...)`.
+* En app tas bort med `rddeploy::shinyapp_avpublicera("appnamn")` och flyttas till den andra servern med `rddeploy::shinyapp_flytta("appnamn")` (ingen `till`-parameter — riktningen avgörs automatiskt).
 * Rättigheter på app-katalogerna under `/srv/shiny-server/` följer principen *en användare skriver, en grupp läser* — `shiny-deploy:shiny` med läge `2775`/`664`. Deploy-skriptet `/usr/local/bin/shiny_deploy.sh` säkerställer rätt grupp och läge vid varje körning, vilket förutsätter att `shiny-deploy` är medlem i gruppen `shiny`. Se [Rättigheter på app-katalogerna i `/srv/shiny-server/`](#rattigheter-app-kataloger).
 * Statiska webbrapporter (RMarkdown/Quarto) och dokumentationsportaler publiceras från sina egna repon och blir åtkomliga under `/srv/rapporter/`. Publiceringsflödena beskrivs i den separata **[Publicering](publicering.html)**-dokumentationen; själva serveruppsättningen för statisk hosting beskrivs i [Statisk webbrapport-hosting](#statisk-hosting) ovan.
 * Webbrapporterna serveras från `/srv/rapporter/` på samma Shiny-server som Shinyapparna via en `try_files`-fallback i nginx. Infrastrukturen sätts upp en gång per server enligt avsnittet [Statisk webbrapport-hosting](#statisk-hosting).
