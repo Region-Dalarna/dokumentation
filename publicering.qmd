@@ -69,7 +69,7 @@ Flera `.qmd`-sidor som hör ihop och renderas *på servern* vid varje deploy. Sk
 
 ## Publicera till publik eller intern server
 
-Alla tre innehållstyperna använder samma grundprincip för att välja server: en **branch-modell** där `main`/`master` är din arbetsbranch, och en push till `publicera-publik` respektive `publicera-intern` triggar deploy till rätt server. Vilken self-hosted runner som plockar upp jobbet avgörs automatiskt av branchnamnet.
+**Webbrapporter** och **Shinyappar** använder samma grundprincip för att välja server: en **branch-modell** där `main`/`master` är din arbetsbranch, och en push till `publicera-publik` respektive `publicera-intern` triggar deploy till rätt server. Vilken self-hosted runner som plockar upp jobbet avgörs automatiskt av branchnamnet.
 
 | Server | Domän | Deploy-branch | Runner-etikett |
 |---|---|---|---|
@@ -77,6 +77,13 @@ Alla tre innehållstyperna använder samma grundprincip för att välja server: 
 | Intern | `samhallsanalys.ltdalarna.se` | `publicera-intern` | `rapport-intern` / `shiny-deploy-intern` |
 
 För webbrapporter och Shinyappar behöver du inte hantera brancharna manuellt — R-funktionerna sköter det åt dig via en `target`-parameter (`"publik"` eller `"intern"`).
+
+:::{.callout-important}
+## ⚠️ Dokumentationsportaler är ett undantag: ingen branch-modell, ingen publicera-funktion
+**Portaler följer inte branch-modellen ovan.** En portal (t.ex. det här repot, `dokumentation`) binds till **en** server redan när repot skapas, via `server`-parametern i `rddeploy::webbsida_med_portal_skapa_med_github_repo()`. Det bakas in i repots egen `.github/workflows/deploy.yml`, som triggar direkt på **push till `main`** — inte på `publicera-publik`/`publicera-intern`.
+
+Det betyder i praktiken: **så fort du pushar en ändring till `main` i ett portal-repo deployas den, automatiskt, utan något extra steg.** Det finns ingen `shinyapp_publicera()`/`webbrapport_publicera()`-motsvarighet för portaler att köra, och det ska det inte heller finnas — det finns inget separat publiceringssteg att trigga. En vanlig `git push`/`rddeploy::github_commit_push("dokumentation")` till `main` *är* publiceringen. Se [Dokumentationsportaler](#dokumentationsportaler) nedan.
+:::
 
 ## Webbrapporter{#webbrapporter}
 
@@ -167,7 +174,7 @@ Just den dokumentation du läser nu ligger i portal-repot **`dokumentation`**, s
 
 ### Vad ska med, och var hamnar det?
 
-Till skillnad från en enskild webbrapport committar du ingen färdig HTML — du committar dina `.qmd`-**källor**, och en push till portalens deploy-branch får servern att köra `quarto render` och publicera resultatet.
+Till skillnad från en enskild webbrapport committar du ingen färdig HTML — du committar dina `.qmd`-**källor**, och en push till `main` får servern att köra `quarto render` och publicera resultatet, automatiskt och utan separat publiceringssteg (se undantaget ovan).
 
 | Vad | Var det ligger i repot | Vad som händer med det |
 |---|---|---|
@@ -175,7 +182,7 @@ Till skillnad från en enskild webbrapport committar du ingen färdig HTML — d
 | Startsidan | `index.qmd` | Renderas och listar automatiskt övriga sidor (via `listing-description` i varje sidas YAML) |
 | Portalkonfiguration | `_quarto.yml` | Styr tema, struktur och rendering för hela portalen |
 | Delad stil | `regiondalarna_ruf.css`, `portal_overrides.css` | Ger portalen Region Dalarnas visuella identitet |
-| Workflow | `.github/workflows/deploy.yml` | Kör `quarto render` + deploy på servern vid push |
+| Workflow | `.github/workflows/deploy.yml` | Kör `quarto render` + deploy på servern vid varje push till `main` |
 
 Varje `.qmd`-sida bör ha en `listing-description` i sin YAML-header — det är den texten som visas som sidans sammanfattning i portalens innehållslista på startsidan. Titel och undertitel (`title`/`subtitle`) styr rubriken.
 
@@ -190,7 +197,7 @@ Det är lätt att blanda ihop de tre fälten eftersom de påverkar olika platser
 Kort sagt: `title`/`subtitle` handlar om själva sidan, `listing-description` handlar om hur sidan presenteras i listan på startsidan.
 :::
 
-När du pushat till deploy-branchen renderas allt på servern och portalen blir åtkomlig på `https://<domän>/dokumentation/`. Portaler deployas till sin egen mapp (`/srv/rapporter/<reponamn>/`) och rör aldrig andra rapporter där.
+När du pushat till `main` renderas allt på servern och portalen blir åtkomlig på `https://<domän>/dokumentation/`. Portaler deployas till sin egen mapp (`/srv/rapporter/<reponamn>/`) och rör aldrig andra rapporter där.
 
 ### Lägga till en ny sida i en befintlig portal
 
@@ -232,7 +239,7 @@ Funktionen:
 Ja, men bara om du följer exakt samma struktur som `dokumentation_sida_skapa()` genererar — gement filnamn utan mellanslag eller å/ä/ö, samma YAML-fält (`title`, `subtitle`, `listing-description`), och att filen läggs i repo-roten. Avviker filen från det riskerar den att antingen inte renderas korrekt eller inte dyka upp rätt i portalens innehållslista. Enklast och säkrast är därför att alltid utgå från funktionen.
 :::
 
-Oavsett hur filen skapats gäller samma sista steg: committa och pusha till portalens deploy-branch, så renderar servern om hela portalen och den nya sidan dyker upp automatiskt i innehållslistan — ingen manuell registrering behövs.
+Oavsett hur filen skapats gäller samma sista steg: committa och pusha till `main`, så renderar servern om hela portalen och den nya sidan dyker upp automatiskt i innehållslistan — ingen manuell registrering behövs, och inget separat publiceringsanrop krävs.
 
 ## Skriva `.qmd`-sidor: kodexempel och den viktiga `eval`-regeln{#skriva-qmd-sidor}
 
