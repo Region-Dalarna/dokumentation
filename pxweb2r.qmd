@@ -1,5 +1,5 @@
 ---
-title: "Pxweb2"
+title: "Pxweb2r"
 subtitle: "Hämta statistik från SCB:s PxWebAPI v2 med paketet pxweb2r"
 listing-description: "Praktisk introduktion till att hämta statistik från SCB:s PxWebAPI v2 med paketet pxweb2r. Beskriver hur man hämtar metadata och variabelvärden, bygger query-listor, hanterar wildcards och senaste tidsperiod, slår ihop flera tabeller till ett dataset, samt hämtar kodlistor och kontrollerar om en tabell uppdaterats."
 author: "Samhällsanalys, Region Dalarna"
@@ -34,6 +34,11 @@ Paketet gör API-anropen mer lättanvända genom att bland annat:
 ::: {.callout-note}
 ## Engelska funktions- och parameternamn
 Till skillnad från de flesta andra av våra paket har **pxweb2r** engelska funktions- och parameternamn (`pxweb2_get_data()`, `query`, `table` osv.) — paketet är publicerat öppet på GitHub och kan användas av vem som helst, inte bara internt hos oss. Själva innehållet i `query`-listorna (`Region`, `Kon`, `ContentsCode`, `Tid` ...) är dock alltid på det språk tabellens metadata råkar använda, oftast svenska för SCB:s tabeller.
+:::
+
+::: {.callout-tip}
+## Samma guide finns i paketets eget repo
+Den här sidan är internt riktad (vår egen portal), men innehållet är generellt och användbart för alla som använder paketet. Samma guide finns därför även publicerad direkt i [`pxweb2r`-repot på GitHub](https://github.com/FaluPeppe/pxweb2r/blob/main/pxweb2r.qmd), för externa användare som inte har tillgång till denna portal.
 :::
 
 ### Installation

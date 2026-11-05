@@ -511,7 +511,7 @@ Notera att `index.qmd` **inte** behöver exkludera sig själv ur listan (`exclud
 Portalen har egentligen **två separata sökmekanismer**, värda att skilja på:
 
 - **Filtret ovanför tabellen på `index.qmd`** (`filter-ui: true`) söker bara i det som redan visas i listningen — titel, beskrivning, datum. Ytligt, men snabbt för att hitta rätt *dokument* bland flera.
-- **Sökikonen i navbaren** (`search: true` i `_quarto.yml`, sätts på projektnivå) bygger ett fullständigt textindex (`search.json`) över **allt innehåll på alla sidor**, inte bara det som syns i listningen. Den kan hitta en specifik term mitt inne i en lång fil som `pxweb2.qmd` även om ordet aldrig nämns i titel eller beskrivning, och fungerar från vilken sida som helst i portalen — inte bara från startsidan.
+- **Sökikonen i navbaren** (`search: true` i `_quarto.yml`, sätts på projektnivå) bygger ett fullständigt textindex (`search.json`) över **allt innehåll på alla sidor**, inte bara det som syns i listningen. Den kan hitta en specifik term mitt inne i en lång fil som `pxweb2r.qmd` även om ordet aldrig nämns i titel eller beskrivning, och fungerar från vilken sida som helst i portalen — inte bara från startsidan.
 
 De kompletterar alltså varandra: filtret för att hitta rätt dokument, sökikonen för att hitta ett specifikt stycke text var det än ligger. För en teknisk dokumentationsportal (där man ofta letar efter en specifik funktion, felkod eller kommandorad snarare än ett helt dokument) är den fullständiga sökningen ofta mer värdefull än filtret i praktiken — den bör därför hållas påslagen (`search: true`) som standard i `_quarto.yml.tmpl`.
 
