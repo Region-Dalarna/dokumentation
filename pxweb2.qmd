@@ -1,7 +1,7 @@
 ---
 title: "Pxweb2"
-subtitle: "Instruktioner för att använda pxweb2-funktioner för datahämtning från PxWebAPI v2"
-listing-description: "Praktisk introduktion till att hämta statistik från SCB:s PxWebAPI v2 med func_pxweb2.R. Beskriver hur man hämtar metadata och variabelvärden, bygger query-listor, hanterar wildcards och senaste tidsperiod, samt slår ihop flera tabeller till ett dataset."
+subtitle: "Hämta statistik från SCB:s PxWebAPI v2 med paketet pxweb2r"
+listing-description: "Praktisk introduktion till att hämta statistik från SCB:s PxWebAPI v2 med paketet pxweb2r. Beskriver hur man hämtar metadata och variabelvärden, bygger query-listor, hanterar wildcards och senaste tidsperiod, slår ihop flera tabeller till ett dataset, samt hämtar kodlistor och kontrollerar om en tabell uppdaterats."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -17,64 +17,79 @@ format:
 
 ## Inledning
 
-Det här dokumentet är en enkel och praktisk introduktion till hur man använder funktionerna för att hämta data från SCB:s PxWebAPI version 2. Syftet är att snabbt kunna komma igång med datahämtning, förstå de vanligaste parametrarna och känna till de hjälpfunktioner som underlättar arbetet.
+Det här dokumentet är en enkel och praktisk introduktion till hur man hämtar data från SCB:s PxWebAPI version 2, med R-paketet **pxweb2r**. Syftet är att snabbt kunna komma igång med datahämtning, förstå de vanligaste parametrarna och känna till de hjälpfunktioner som underlättar arbetet.
 
-Funktionerna är tänkta att göra API-anropen mer lättanvända genom att bland annat:
+Paketet gör API-anropen mer lättanvända genom att bland annat:
 
-- hämta metadata och variabelvärden,
+- hämta metadata och variabelvärden (inklusive kodlistor/aggregeringar),
 - skapa query-listor,
 - tillåta både koder och klartext i urval,
 - möjliggöra att flera tabeller hämtas i samma anrop och läggs ihop till ett dataset,
 - hantera senaste tidsperiod med `"9999"`,
 - hantera wildcard-uttryck som `"2083*"`,
 - hantera DeSO-/RegSO-versioner,
-- och returnera data i ett analysvänligt format.
+- kontrollera om en tabell uppdaterats sedan ett visst datum,
+- och returnera data i ett analysvänligt format (en `tibble`).
+
+::: {.callout-note}
+## Engelska funktions- och parameternamn
+Till skillnad från de flesta andra av våra paket har **pxweb2r** engelska funktions- och parameternamn (`pxweb2_get_data()`, `query`, `table` osv.) — paketet är publicerat öppet på GitHub och kan användas av vem som helst, inte bara internt hos oss. Själva innehållet i `query`-listorna (`Region`, `Kon`, `ContentsCode`, `Tid` ...) är dock alltid på det språk tabellens metadata råkar använda, oftast svenska för SCB:s tabeller.
+:::
+
+### Installation
+
+```r
+# install.packages("remotes")
+remotes::install_github("FaluPeppe/pxweb2r")
+```
 
 ### Vem är detta för — och var ska jag börja läsa?
 
 Det här dokumentet är skrivet för användare som vill hämta statistik från PxWebApi v2 till R.
 
-### 🧑‍💻 Du vill snabbt hämta data
+#### 🧑‍💻 Du vill snabbt hämta data
 
-Läs [TL;DR](#tldr) och [Hämta data med pxweb2_hamta_data](#hamta-data-med-pxweb2_hamta_data). Det räcker för de flesta vanliga uttag.
+Läs [TL;DR](#tldr) och [Hämta data med pxweb2_get_data](#hamta-data-med-pxweb2_get_data). Det räcker för de flesta vanliga uttag.
 
-### 🔎 Du vill förstå vilka variabler och värden en tabell innehåller 
+#### 🔎 Du vill förstå vilka variabler och värden en tabell innehåller
 
-Läs [Utforska tabeller och metadata](#utforska-tabeller-och-metadata). Där visas hur du söker tabeller, hämtar metadata och listar variabler och värden.
+Läs [Utforska tabeller och metadata](#utforska-tabeller-och-metadata). Där visas hur du söker tabeller, hämtar metadata och listar variabler, värden och kodlistor.
 
-### 🧩 Du vill använda mer avancerade urval
+#### 🧩 Du vill använda mer avancerade urval
 
 Läs [Vanliga urval i query](#vanliga-urval-i-query) och [DeSO och RegSO](#deso-och-regso). Där finns exempel på `"9999"`, wildcard, klartextvärden och hantering av versionerade geografier.
 
-## TL;DR
+## TL;DR {#tldr}
 
 Snabbstart för dig som vill komma igång direkt:
 
 ```{r eval=FALSE}
-# ladda funktioner för att hämta data med pxweb2 API:et
-source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
+library(pxweb2r)
 
-# hämta tabell-id, antingen direkt från SCB:s öppna statistikdatabas eller som nedan genoma söka efter tabeller med funktionen pxweb2_search_tables
+# hämta tabell-id, antingen direkt från SCB:s öppna statistikdatabas eller
+# genom att söka efter tabeller med funktionen pxweb2_search_tables()
 pxweb2_search_tables("hushållstyp per region")
 
-# välj en av tabellerna, tex TAB6568, då kan vi skapa en query för denna specifika tabell med funktionen pxweb2_get_data_script_create()
-pxweb2_get_data_script_create("TAB6568")
+# välj en av tabellerna, tex TAB6568 - skapa ett färdigt pxweb2_get_data()-anrop
+# för just den tabellen med pxweb2_data_script_template()
+pxweb2_data_script_template("TAB6568")
 
-# skriptet lägger sig automatiskt i urklippshanteraren och kan klistras in i ett R-skript. 
-# Med Ctrl + V direkt efter att du kört pxweb2_get_data_script_create("TAB6568") får du således skriptet nedan
+# anropet läggs automatiskt i urklippshanteraren och kan klistras in i ett
+# R-skript. Med Ctrl + V direkt efter att du kört pxweb2_data_script_template("TAB6568")
+# får du således anropet nedan
 
 # Antal hushåll per region efter hushållstyp. År 2011-2025
-dataset_df <- pxweb2_hamta_data(
-	tabell = "TAB6568",
-	query = list(
-		Region = "2083*",
-		Hushallstyp = "*",
-		ContentsCode = "*",
-		Tid = "*"
-		))
+dataset_df <- pxweb2_get_data(
+  table = "TAB6568",
+  query = list(
+    Region       = "2083*",
+    Hushallstyp  = "*",
+    ContentsCode = "*",
+    Tid          = "*"
+  )
+)
 
 # Nu har du data i dataset_df och kan börja bearbeta datasetet!
-
 ```
 
 Detta hämtar data från tabellen `TAB6568`, väljer alla regionkoder som börjar med `2083`, alla hushållstyper, allt tabellinnehåll och den senaste tidsperioden.
@@ -89,8 +104,7 @@ Vanliga specialvärden:
 | `"202?M12"` | Matchar ett tecken med `?`, till exempel december för 2020-talet |
 | `c("2083A*", "2083B*", "2083C*")` | Flera wildcard-uttryck i samma variabel (i detta fall för att ta med alla DeSO i Hedemora kommun) |
 
-
-## Utforska tabeller och metadata
+## Utforska tabeller och metadata{#utforska-tabeller-och-metadata}
 
 Innan man hämtar data är det ofta bra att förstå tabellens struktur: vilka variabler som finns, vilka värden de kan anta och vilken tidsperiod tabellen täcker.
 
@@ -106,9 +120,9 @@ Exempel med fler argument:
 
 ```{r eval=FALSE}
 tabeller_df <- pxweb2_search_tables(
-  query = "befolkning",
-  lang = "sv",
-  pageSize = 200,
+  query               = "befolkning",
+  lang                = "sv",
+  pageSize            = 200,
   includeDiscontinued = FALSE
 )
 ```
@@ -118,20 +132,29 @@ tabeller_df <- pxweb2_search_tables(
 När du vet tabell-id kan du hämta metadata:
 
 ```{r eval=FALSE}
-meta <- pxweb2_meta("TAB6568")
+meta <- pxweb2_get_metadata("TAB6568")
 ```
 
 Metadataobjektet används av flera andra funktioner och kan skickas vidare för att slippa göra API-anrop flera gånger.
 
+Vill du bara kontrollera att en tabell faktiskt existerar, utan att göra något med resultatet:
+
+```{r eval=FALSE}
+pxweb2_table_exists("TAB6568")   # TRUE/FALSE
+```
+
 ### Lista variabler
 
-Om du vill lista en tabells variabler så kan du använda `pxweb2_variabler()`. Den tar antingen ett tabell-id (tex "TAB6568") eller ett metadata-objektet som argument:
+Om du vill lista en tabells variabler så kan du använda `pxweb2_get_variables()`. Den tar antingen ett tabell-id (t.ex. `"TAB6568"`) eller ett metadataobjekt som argument:
+
 ```{r eval=FALSE}
-pxweb2_variabler(meta)
+pxweb2_get_variables(meta)
 ```
-Använder du ett metadata-objekt behöver inte ett nytt API-anrop göras, men det går att använda ett tabell-id direkt (om man inte gjort ett metadata-objekt:
+
+Använder du ett metadataobjekt behöver inte ett nytt API-anrop göras, men det går att använda ett tabell-id direkt (om man inte redan gjort ett metadataobjekt):
+
 ```{r eval=FALSE}
-pxweb2_variabler("TAB6568")
+pxweb2_get_variables("TAB6568")
 ```
 
 Så här kan det se ut när man kör funktionen:
@@ -142,13 +165,13 @@ Så här kan det se ut när man kör funktionen:
 #| comment: ""
 #| prompt: true
 
-pxweb2_variabler(meta)
+pxweb2_get_variables(meta)
 ```
 
 Om du vill spara resultatet i en data frame:
 
 ```{r eval=FALSE}
-variabler_df <- pxweb2_variabler(meta)
+variabler_df <- pxweb2_get_variables(meta)
 ```
 
 Typiska kolumner i resultatet är:
@@ -167,10 +190,10 @@ Typiska kolumner i resultatet är:
 Om du vill se tabellens värden för samtliga variabler:
 
 ```{r eval=FALSE}
-varden <- pxweb2_varden(meta)
+varden <- pxweb2_get_values(meta)
 ```
 
-Du kan också skicka med en eller flera variabeler i parametern som heter variabler. Du kan använda både kod och klartext för variabeln (code eller label). Från tabellen vi hämtade metadata-objektet `meta` ovan kan vi alltså använda `region` eller `Region` (blir samma sak då parametern är shiftlägesokäsnlig, dvs. stora och små bokstäver spelar ingen roll), eller såväl `ContentsCode` som `tabellinnehåll`:
+Du kan också skicka med en eller flera variabler i parametern `variables`. Du kan använda både kod och klartext för variabeln (`code` eller `label`). Från tabellen vi hämtade metadataobjektet `meta` ovan kan vi alltså använda `region` eller `Region` (blir samma sak då parametern är skiftlägesokänslig, dvs. stora och små bokstäver spelar ingen roll), eller såväl `ContentsCode` som `tabellinnehåll`:
 
 ```{r}
 #| echo: true
@@ -178,7 +201,7 @@ Du kan också skicka med en eller flera variabeler i parametern som heter variab
 #| collapse: true
 #| comment: ""
 #| prompt: true
-regioner <- pxweb2_varden(meta, variabler = "Region")
+regioner <- pxweb2_get_values(meta, variables = "Region")
 ```
 
 Det är särskilt användbart för att se vilka koder som finns:
@@ -194,36 +217,41 @@ regioner |>
   dplyr::select(code, label)
 ```
 
-## Hämta data med pxweb2_hamta_data
+::: {.callout-tip}
+## Stora variabler och aggregeringar: `include_aggregations`
+Vissa variabler (framför allt `Region`) har färdiga **kodlistor och aggregeringar** i PxWeb — t.ex. "alla kommuner i ett län" eller "lokala arbetsmarknadsregioner". `pxweb2_get_values()` har parametern `include_aggregations` (`"auto"` som standard, annars `"all"`/`"none"`/`"codelists"`, eller en namngiven vektor per variabel) för att styra om och hur mycket av det som hämtas. Vill du hämta en enskild kodlista direkt, utan att gå via `pxweb2_get_values()`, använd `pxweb2_get_codelist()`; `pxweb2_list_codelists(meta)` visar vilka kodlist-id:n en tabell faktiskt erbjuder.
+:::
 
-Den viktigaste funktionen är `pxweb2_hamta_data()`. Den hämtar data från en tabell och returnerar en data frame/tibble.
+## Hämta data med pxweb2_get_data{#hamta-data-med-pxweb2_get_data}
+
+Den viktigaste funktionen är `pxweb2_get_data()`. Den hämtar data från en tabell och returnerar en `tibble`.
 
 ### Grundexempel
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6568",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6568",
   query = list(
-    Region = "2083",
-    Hushallstyp = "*",
+    Region       = "2083",
+    Hushallstyp  = "*",
     ContentsCode = "*",
-    Tid = "*"
+    Tid          = "*"
   )
 )
 ```
 
-### Använd metadataobjekt i stället för tabell-id
+### Använd metadataobjekt istället för tabell-id
 
 Om metadata redan är hämtad kan den skickas direkt:
 
 ```{r eval=FALSE}
-meta <- pxweb2_meta("TAB6568")
+meta <- pxweb2_get_metadata("TAB6568")
 
-dataset_df <- pxweb2_hamta_data(
-  tabell = meta,
+dataset_df <- pxweb2_get_data(
+  table = meta,
   query = list(
     Region = "2083",
-    Tid = "9999"
+    Tid    = "9999"
   )
 )
 ```
@@ -232,38 +260,36 @@ Det kan vara praktiskt när man ska göra flera uttag från samma tabell.
 
 ## Hämta data från en eller flera SCB-tabeller
 
-Funktionen `pxweb2_hamta_data()` används för att hämta data från SCB:s Statistikdatabas via PxWeb API. Funktionen kan användas både för en enskild tabell och för flera tabeller som ska läggas ihop till en gemensam tabell.
-
 ### Hämta data från en tabell
 
-Det enklaste fallet är att hämta data från en enda tabell. Tabellen anges med argumentet `tabell`, och urvalet anges i `query`.
+Det enklaste fallet är att hämta data från en enda tabell. Tabellen anges med argumentet `table`, och urvalet anges i `query`.
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6766",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6766",
   query = list(
-    Region = "2021",
-    Kon = "*",
+    Region       = "2021",
+    Kon          = "*",
     ContentsCode = "*",
-    Tid = "*"
+    Tid          = "*"
   )
 )
 ```
 
-I `query` anges vilka värden som ska hämtas för respektive variabel. Tecknet `"*"` betyder att alla värden för variabeln hämtas.
+I `query` anges vilka värden som ska hämtas för respektive variabel. Tecknet `"*"` betyder att alla värden för variabeln hämtas (API:ts eget wildcard, se [Vanliga urval i query](#vanliga-urval-i-query)).
 
-### Hämta den senaste tidsperioden
+### Hämta den senaste tidsperioden{#hamta-den-senaste-tidsperioden}
 
-Om `"9999"` används för tidsvariabeln hämtas den senaste tillgängliga tidsperioden i tabellen.
+Om `"9999"` används för tidsvariabeln hämtas den senaste tillgängliga tidsperioden i tabellen. Önskar du ett annat alias än `"9999"`, eller att funktionen ska strunta i senaste-period-hanteringen helt, styr `latest_period_code` (`NULL` stänger av den).
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6766",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6766",
   query = list(
-    Region = "2021",
-    Kon = "*",
+    Region       = "2021",
+    Kon          = "*",
     ContentsCode = "*",
-    Tid = "9999"
+    Tid          = "9999"
   )
 )
 ```
@@ -272,40 +298,38 @@ Detta är praktiskt när man vill slippa ändra årtal manuellt när SCB uppdate
 
 ### Hämta och lägga ihop flera tabeller
 
-I vissa fall är samma statistik uppdelad på flera SCB-tabeller, till exempel eftersom äldre och nyare årgångar ligger i olika tabeller. Då kan flera tabell-id skickas in som en vektor.
+I vissa fall är samma statistik uppdelad på flera SCB-tabeller, till exempel eftersom äldre och nyare årgångar ligger i olika tabeller. Då kan flera tabell-id:n skickas in som en vektor i `table`.
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = c("TAB3266", "TAB3267", "TAB5839", "TAB1828"),
+dataset_df <- pxweb2_get_data(
+  table = c("TAB3266", "TAB3267", "TAB5839", "TAB1828"),
   query = list(
-    Region = "2021",
-    Kon = "*",
+    Region       = "2021",
+    Kon          = "*",
     ContentsCode = "*",
-    Tid = "*"
+    Tid          = "*"
   )
 )
 ```
 
-Funktionen hämtar då varje tabell separat och lägger ihop resultaten radvis med `dplyr::bind_rows()`. En extra kolumn, `tabell_id`, läggs till så att det går att se vilken SCB-tabell varje rad kommer från.
-
-Om tabellerna inte har exakt samma kolumnstruktur ges en varning. Saknade kolumner fylls då med `NA`.
+Funktionen hämtar då varje tabell separat och lägger ihop resultaten radvis. Om tabellerna inte har exakt samma kolumnstruktur ges en varning. Saknade kolumner fylls då med `NA`.
 
 ### Harmonisering av variabelnamn
 
-Ibland innehåller tabellerna samma typ av information, men SCB har använt olika variabelnamn i olika tabeller. Exempelet nedan är flera tabeller som innehåller samma information där alla tabeller utom en använder variabelnamnet `Region`, medan den använder `Kommun`.
+Ibland innehåller tabellerna samma typ av information, men SCB har använt olika variabelnamn i olika tabeller. Exempelet nedan är flera tabeller som innehåller samma information, där alla tabeller utom en använder variabelnamnet `Region`, medan den använder `Kommun`.
 
-Då kan argumentet `variabelnamn_harmonisera` användas.
+Då kan argumentet `harmonise_variable_names` användas.
 
 ```{r eval=FALSE}
-dataset_df2 <- pxweb2_hamta_data(
-  tabell = c("TAB3266", "TAB3267", "TAB5839", "TAB1828"),
+dataset_df2 <- pxweb2_get_data(
+  table = c("TAB3266", "TAB3267", "TAB5839", "TAB1828"),
   query = list(
-    Region = "2021",
-    Kon = "*",
+    Region       = "2021",
+    Kon          = "*",
     ContentsCode = "*",
-    Tid = "*"
+    Tid          = "*"
   ),
-  variabelnamn_harmonisera = c("Region" = "Kommun")
+  harmonise_variable_names = c(Region = "Kommun")
 )
 ```
 
@@ -319,7 +343,7 @@ Harmoniseringen sker i två steg:
 Exempelvis innebär:
 
 ```r
-variabelnamn_harmonisera = c("Region" = "Kommun")
+harmonise_variable_names = c(Region = "Kommun")
 ```
 
 att:
@@ -333,27 +357,27 @@ Det gör att de sammanslagna tabellerna får en mer enhetlig struktur.
 
 ### Exempel: förvärvsarbetande pendlare över kommungräns
 
-Nedan hämtas statistik över förvärvsarbetande pendlare 16 år och äldre över kommungräns. Statistiken ligger i flera tabeller, och variabelnamnet behöver harmoniseras eftersom den senaste BAS-tabellen använder `Kommun` i stället för `Region`.
+Nedan hämtas statistik över förvärvsarbetande pendlare 16 år och äldre över kommungräns. Statistiken ligger i flera tabeller, och variabelnamnet behöver harmoniseras eftersom den senaste BAS-tabellen använder `Kommun` istället för `Region`.
 
 ```{r eval=FALSE}
 # Förvärvsarbetande pendlare 16+ år över kommungräns (RAMS)
 # efter kommun och kön. År 2004-2018.
 
-dataset_df2 <- pxweb2_hamta_data(
-  tabell = c("TAB3266", "TAB3267", "TAB5839", "TAB1828"),
+dataset_df2 <- pxweb2_get_data(
+  table = c("TAB3266", "TAB3267", "TAB5839", "TAB1828"),
   query = list(
-    Region = "2021",
-    Kon = "*",
+    Region       = "2021",
+    Kon          = "*",
     ContentsCode = "*",
-    Tid = "*"
+    Tid          = "*"
   ),
-  variabelnamn_harmonisera = c("Region" = "Kommun")
+  harmonise_variable_names = c(Region = "Kommun")
 )
 ```
 
-Resultatet blir en samlad tabell där raderna från de olika SCB-tabellerna har lagts ihop. Kolumnen `tabell_id` visar vilken ursprungstabell varje rad kommer från.
+Resultatet blir en samlad tabell där raderna från de olika SCB-tabellerna har lagts ihop.
 
-## Vanliga urval i query
+## Vanliga urval i query{#vanliga-urval-i-query}
 
 Argumentet `query` är en namngiven lista. Namnen motsvarar variabler i tabellen, oftast API-koder som `Region`, `Tid` och `ContentsCode`.
 
@@ -362,18 +386,18 @@ Argumentet `query` är en namngiven lista. Namnen motsvarar variabler i tabellen
 ```{r eval=FALSE}
 query = list(
   Region = "*",
-  Tid = "*"
+  Tid    = "*"
 )
 ```
 
 ### Hämta senaste tidsperiod med 9999
 
-`"9999"` används som ett användarvänligt alias för senaste tidsvärdet.
+`"9999"` används som ett användarvänligt alias för senaste tidsvärdet (styrs av `latest_period_code`, se [Hämta den senaste tidsperioden](#hamta-den-senaste-tidsperioden)).
 
 ```{r eval=FALSE}
 query = list(
   Region = "2083",
-  Tid = "9999"
+  Tid    = "9999"
 )
 ```
 
@@ -384,13 +408,13 @@ Om tabellen har år väljs senaste år. Om tabellen har månader väljs senaste 
 ```{r eval=FALSE}
 query = list(
   Region = c("2081", "2082", "2083"),
-  Tid = c("2023", "2024", "2025")
+  Tid    = c("2023", "2024", "2025")
 )
 ```
 
 ### Wildcard med * och ?
 
-Funktionen kan hantera wildcard-uttryck lokalt mot metadata innan API-anropet skickas. Det gör att chunk-logiken fortfarande vet hur många celler uttaget omfattar.
+Funktionen kan hantera wildcard-uttryck lokalt mot metadata innan API-anropet skickas (styrs av `allow_api_wildcards`). Det gör att chunk-logiken fortfarande vet hur många celler uttaget omfattar.
 
 ```{r eval=FALSE}
 query = list(
@@ -416,14 +440,14 @@ query = list(
 
 ### Klartextvärden i query
 
-Om `allow_label_values = TRUE` kan man i många fall ange klartext i stället för kod.
+Om `allow_label_values = TRUE` (standard) kan man i många fall ange klartext istället för kod.
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6568",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6568",
   query = list(
     Region = "Hedemora",
-    Tid = "9999"
+    Tid    = "9999"
   ),
   allow_label_values = TRUE
 )
@@ -431,12 +455,13 @@ dataset_df <- pxweb2_hamta_data(
 
 Det går också att blanda kod och klartext om metadata tillåter matchningen.
 
-## DeSO och RegSO
+## DeSO och RegSO {#deso-och-regso}
 
-SCB-tabeller kan innehålla flera versioner av DeSO och RegSO, till exempel äldre och nyare indelningar. Funktionerna innehåller därför stöd för att normalisera och hantera dessa versioner.
+SCB-tabeller kan innehålla flera versioner av DeSO och RegSO, till exempel äldre och nyare indelningar. Paketet har därför stöd för att normalisera och hantera dessa versioner.
 
 ### Hämta DeSO, RegSO eller alla geografiska indelningar i en kommun/län
-Om du vill hämta alla DeSO eller RegSO i en kommun eller ett län kan du använda wildcard-uttryck som t.ex. `2083*` för att få med alla koder som finns i tabellen för Hedemora kommun alternativt `20*` för att hämta alla koder i Dalarnas län. För att hämta alla RegSO, DeSO eller samtliga geografiska indelningar i en kommun:
+
+Om du vill hämta alla DeSO eller RegSO i en kommun eller ett län kan du använda wildcard-uttryck som t.ex. `2083*` för att få med alla koder som finns i tabellen för Hedemora kommun, alternativt `20*` för att hämta alla koder i Dalarnas län. För att hämta alla RegSO, DeSO eller samtliga geografiska indelningar i en kommun:
 
 ```{r eval=FALSE}
 Region = "2083R*"                                     # hämta alla RegSO i Hedemora kommun
@@ -454,16 +479,16 @@ Region = "20*"                                        # hämta alla områden som
 
 ### Dela upp kommun och område
 
-Parametern `deso_regso_splitta_kommun = TRUE` gör att funktionerna försöker skapa kommunuppgifter när regionen är DeSO eller RegSO.
+Parametern `split_deso_regso_by_municipality = TRUE` (standard) gör att funktionen försöker skapa kommunuppgifter när regionen är DeSO eller RegSO.
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6568",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6568",
   query = list(
     Region = c("2083A*", "2083B*", "2083C*", "2083R*"),
-    Tid = "9999"
+    Tid    = "9999"
   ),
-  deso_regso_splitta_kommun = TRUE
+  split_deso_regso_by_municipality = TRUE
 )
 ```
 
@@ -480,45 +505,45 @@ Om tabellen inte innehåller DeSO eller RegSO ska dessa extra kolumner inte skap
 
 ### Hantera flera versioner
 
-Parametern `deso_regso_versioner_hantera` styr hur versionerade DeSO-/RegSO-koder hanteras.
+Parametern `deso_regso_versions` styr hur versionerade DeSO-/RegSO-koder hanteras.
 
 Tillåtna värden:
 
 | Värde | Betydelse |
 |---|---|
-| `"senaste"` | Behåll senaste version med faktiskt värde. Om senaste version har `0` men äldre version har värde över `0`, behåll den äldre med värde. |
-| `"summera"` | Ta bort versionssuffix och summera rader som blir dubletter. |
+| `"latest"` | Behåll senaste version med faktiskt värde. Om senaste version har `0` men äldre version har värde över `0`, behåll den äldre med värde. |
+| `"sum"` | Ta bort versionssuffix och summera rader som blir dubletter. |
 | `NULL` | Gör ingen versionshantering. |
 
-Rekommenderad standard:
+Rekommenderad standard (och default-värde):
 
 ```{r eval=FALSE}
-deso_regso_versioner_hantera = "senaste"
+deso_regso_versions = "latest"
 ```
 
 Exempel:
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6568",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6568",
   query = list(
-    Region = c("2083A*", "2083B*", "2083C*", "2083R*"),
-    Hushallstyp = "*",
+    Region       = c("2083A*", "2083B*", "2083C*", "2083R*"),
+    Hushallstyp  = "*",
     ContentsCode = "*",
-    Tid = "*"
+    Tid          = "*"
   ),
-  deso_regso_versioner_hantera = "senaste",
-  deso_regso_splitta_kommun = TRUE
+  deso_regso_versions = "latest",
+  split_deso_regso_by_municipality = TRUE
 )
 ```
 
-### När ska man använda senaste respektive summera?
+### När ska man använda latest respektive sum?
 
-Använd `"senaste"` när DeSO-/RegSO-versioner ska ses som alternativa versioner av samma geografiska område. Det är normalt det säkraste valet.
+Använd `"latest"` när DeSO-/RegSO-versioner ska ses som alternativa versioner av samma geografiska område. Det är normalt det säkraste valet.
 
-Använd `"summera"` när versionerade rader representerar nollrader eller när du uttryckligen vill lägga ihop rader som blir identiska efter att versionssuffixet tagits bort.Denna metod används mycket sällan, normalt är defaultvärdet "senaste" det rimligaste att använda.  
+Använd `"sum"` när versionerade rader representerar nollrader eller när du uttryckligen vill lägga ihop rader som blir identiska efter att versionssuffixet tagits bort. Denna metod används mycket sällan — normalt är default-värdet `"latest"` det rimligaste.
 
-Använd `NULL` om du vill behålla alla versioner separat. I många tabeller är inte detta meningsfullt då det bara är en version som har värden varje år.
+Använd `NULL` om du vill behålla alla versioner separat. I många tabeller är inte detta meningsfullt, då det bara är en version som har värden varje år.
 
 ## Hantering av kod och klartext
 
@@ -528,16 +553,16 @@ Vissa tabeller har labels där kod och klartext ligger tillsammans, till exempel
 "2082 Säter"
 ```
 
-Parametern `rensakod_i_label = TRUE` gör att funktionen försöker rensa bort kodprefixet när motsvarande kod finns i kodkolumnen.
+Parametern `strip_code_in_label = TRUE` (standard) gör att funktionen försöker rensa bort kodprefixet när motsvarande kod finns i kodkolumnen.
 
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6568",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6568",
   query = list(
     Region = "2082",
-    Tid = "9999"
+    Tid    = "9999"
   ),
-  rensakod_i_label = TRUE
+  strip_code_in_label = TRUE
 )
 ```
 
@@ -545,52 +570,55 @@ Principen är att bara ta bort koden när klartexten börjar med exakt samma kod
 
 ## Stora uttag och chunkning
 
-Funktionen delar upp stora uttag i mindre delar när antalet celler blir stort. Detta görs för att undvika att uttag överskrider API-gränser.
+Funktionen delar upp stora uttag i mindre delar när antalet celler blir stort (PxWeb API v2 har ett tak på 150 000 celler per anrop). Detta görs automatiskt, för att undvika att uttag överskrider API-gränser.
 
 Wildcard-uttryck som `"2083*"` expanderas lokalt mot metadata före chunkning. Det gör att funktionen kan räkna celler utifrån faktiska koder, samtidigt som användaren kan skriva queryn på ett enkelt sätt.
 
-Exempel:
-
 ```{r eval=FALSE}
-dataset_df <- pxweb2_hamta_data(
-  tabell = "TAB6568",
+dataset_df <- pxweb2_get_data(
+  table = "TAB6568",
   query = list(
-    Region = "2083*",
-    Hushallstyp = "*",
+    Region       = "2083*",
+    Hushallstyp  = "*",
     ContentsCode = "*",
-    Tid = "*"
+    Tid          = "*"
   )
 )
 ```
 
+::: {.callout-note}
+## Ovanliga/felaktiga värden i query: `on_all_values_invalid`
+Om **samtliga** värden du anger för en variabel saknas i tabellen (t.ex. en felstavad region) styr `on_all_values_invalid` vad som händer: `"stop"` (standard) avbryter med ett fel, `"*"` hämtar alla värden för variabeln istället, och `"null"` gör att hela anropet returnerar `NULL`. Det sista är praktiskt när du hämtar från flera tabeller där olika år/regioner bara finns i vissa av dem.
+:::
+
 ## Skapa query-kod automatiskt
 
-### pxweb2_query_list_txt_create()
+### pxweb2_query_list_template()
 
-Funktionen `pxweb2_query_list_txt_create()` skapar text för en query-lista utifrån tabellens variabler.
+Funktionen `pxweb2_query_list_template()` skapar text för en query-lista utifrån tabellens variabler.
 
 ```{r eval=FALSE}
-pxweb2_query_list_txt_create("TAB6568")
+pxweb2_query_list_template("TAB6568")
 ```
 
 Exempel med egna standardvärden:
 
 ```{r eval=FALSE}
-pxweb2_query_list_txt_create(
-  table_id = "TAB6568",
+pxweb2_query_list_template(
+  table_id  = "TAB6568",
   overrides = list(
     Region = "2083*",
-    Tid = "9999"
+    Tid    = "9999"
   )
 )
 ```
 
-### pxweb2_get_data_script_create()
+### pxweb2_data_script_template()
 
-Funktionen `pxweb2_get_data_script_create()` skapar ett färdigt kodutkast för att hämta data.
+Funktionen `pxweb2_data_script_template()` skapar ett färdigt kodutkast för att hämta data — skriven till konsolen och (om möjligt) kopierad till urklipp.
 
 ```{r eval=FALSE}
-pxweb2_get_data_script_create("TAB6568")
+pxweb2_data_script_template("TAB6568")
 ```
 
 Det kan vara ett snabbt sätt att starta ett nytt skript för en tabell.
@@ -600,8 +628,8 @@ Det kan vara ett snabbt sätt att starta ett nytt skript för en tabell.
 Ett bra standardflöde är:
 
 1. Sök fram tabellen med `pxweb2_search_tables()` eller via SCB:s webbgränssnitt.
-2. Skapa skriptet för att hämta data med `pxweb2_get_data_script_create()`
-3. Klistra in med Ctrl + v och få ett skript med ett giltigt `pxweb2_hamta_data()`-anrop för den aktuella tabellen.
+2. Skapa skriptet för att hämta data med `pxweb2_data_script_template()`.
+3. Klistra in med Ctrl + V och få ett skript med ett giltigt `pxweb2_get_data()`-anrop för den aktuella tabellen.
 4. Kontrollera resultatet: kolumnnamn, regionnivåer, tidsperioder och eventuella DeSO-/RegSO-versioner.
 
 Exempel:
@@ -610,20 +638,54 @@ Exempel:
 pxweb2_search_tables("helårsekvivalenter")
 
 # Välj en tabell och skapa skriptet för den tabellen
-pxweb2_get_data_script_create("TAB1386")
+pxweb2_data_script_template("TAB1386")
 
-# Kör Ctrl + v för att få skriptet nedan 
+# Kör Ctrl + V för att få skriptet nedan
 
-dataset_df <- pxweb2_hamta_data(
-	tabell = "TAB1386",
-	query = list(
-		Region = "*",
-		Kon = "*",
-		Aldersgrupp = "*",
-		ContentsCode = "*",
-		Tid = "*"
-		))
+dataset_df <- pxweb2_get_data(
+  table = "TAB1386",
+  query = list(
+    Region       = "*",
+    Kon          = "*",
+    Aldersgrupp  = "*",
+    ContentsCode = "*",
+    Tid          = "*"
+  )
+)
 ```
+
+## Hålla ett dataset uppdaterat
+
+Körs ett skript schemalagt (t.ex. nattligt) är det ofta onödigt att hämta om samma data varje gång. `pxweb2_table_updated()` och `pxweb2_table_needs_update()` låter dig kontrollera om SCB faktiskt lagt upp en nyare version sedan sist, innan du gör själva datahämtningen:
+
+```{r eval=FALSE}
+# Senaste gång tabellen uppdaterades hos SCB
+pxweb2_table_updated("TAB6568")
+# → "2026-06-02T00:59:31Z"
+
+# Har tabellen uppdaterats sedan ett visst tillfälle?
+pxweb2_table_needs_update("TAB6568", reference_datetime = "2025-05-28T06:00:00Z")
+# → TRUE/FALSE (NA om tabellens uppdateringstid saknas)
+```
+
+Praktiskt i ett schemalagt skript: spara tidpunkten för senaste lyckade hämtning, och skippa `pxweb2_get_data()`-anropet (och allt som bygger på det) om `pxweb2_table_needs_update()` ger `FALSE`.
+
+## Andra PxWeb-instanser
+
+Alla funktioner tar ett `base_url`-argument, med SCB:s statistikdatabas som standard. Tabell-id:n valideras inte mot SCB:s namngivning — finns inte ett id på den angivna `base_url`, kastar `pxweb2_get_metadata()` ett tydligt fel (HTTP 404) istället för att gissa.
+
+```{r eval=FALSE}
+pxweb2_get_data(
+  table    = "NågotTabellId",
+  query    = list(...),
+  base_url = "https://en-annan-pxweb-instans.se/api/v2/tables/"
+)
+```
+
+::: {.callout-tip}
+## Relaterat paket: pxweb
+[`pxweb`](https://github.com/rOpenGov/pxweb) (rOpenGov) är det etablerade, generella R-biblioteket för PxWeb-API:er och stödjer både v1 och v2. `pxweb2r` är ett smalare, mer opinionerat paket byggt specifikt mot **v2**-API:et för Samhällsanalys egna behov (t.ex. att slå ihop flera tabeller, DeSO-/RegSO-hantering och arbetsflödeshjälparna ovan) — värt att prova `pxweb` också om du behöver bredare PxWeb-instansstöd eller v1.
+:::
 
 ## Vanliga problem och lösningar
 
@@ -635,100 +697,47 @@ Om du får ett fel som:
 unused argument (...)
 ```
 
-kontrollera att argumentnamnet i funktionsanropet matchar funktionsdefinitionen. Exempelvis ska parametern för DeSO-/RegSO-versioner skickas med samma namn som funktionen förväntar sig.
+kontrollera att argumentnamnet i funktionsanropet matchar funktionsdefinitionen — pxweb2r:s parametrar heter på engelska (t.ex. `harmonise_variable_names`, inte det äldre `variabelnamn_harmonisera`).
 
 ### Tomma kommun-kolumner i tabeller utan DeSO/RegSO
 
-Splitfunktionen ska bara lägga till `kommun_kod` och `kommun` när tabellen faktiskt innehåller DeSO eller RegSO. Om tomma kolumner ändå uppstår bör kontrollen i splitfunktionen ses över.
+Splitfunktionen ska bara lägga till `kommun_kod` och `kommun` när tabellen faktiskt innehåller DeSO eller RegSO.
 
 ### Kod och klartext ligger i samma kolumn
 
 Vissa tabeller kan ha labels som innehåller både kod och namn. Använd:
 
 ```{r eval=FALSE}
-rensakod_i_label = TRUE
+strip_code_in_label = TRUE
 ```
 
 Då försöker funktionen rensa bort kodprefixet på ett kontrollerat sätt.
 
 ## Funktionsöversikt
 
-### pxweb2_hamta_data()
-
-Huvudfunktion för att hämta data.
-
-Viktiga argument:
-
-| Argument | Standard | Beskrivning |
-|---|---:|---|
-| `tabell` | `NULL` | Tabell-id eller metadataobjekt |
-| `query` | `NULL` | Lista med urval per variabel |
-| `lang` | `"sv"` | Språk |
-| `output_format` | `"json-stat2"` | Format från API:t |
-| `query_om_enbart_ogiltiga_varden_for_variabel` | `"stop"` | Vad som händer om queryvärden saknas i tabellen |
-| `allow_label_values` | `TRUE` | Tillåt klartextvärden i query |
-| `rensakod_i_label` | `TRUE` | Rensa kodprefix från labels |
-| `senaste_tid_kod` | `"9999"` | Alias för senaste tidsvärde |
-| `allow_api_wildcards` | `TRUE` | Tillåt `*` och `?` i queryvärden |
-| `deso_regso_versioner_hantera` | `"senaste"` | Hantera versionerade DeSO-/RegSO-koder |
-| `deso_regso_splitta_kommun` | `TRUE` | Skapa `kommun_kod` och `kommun` för DeSO/RegSO |
-
-### pxweb2_meta()
-
-Hämtar metadata för en tabell.
-
-```{r eval=FALSE}
-meta <- pxweb2_meta("TAB6568")
-```
-
-### pxweb2_variabler()
-
-Returnerar tabellens variabler i tabellform.
-
-```{r eval=FALSE}
-pxweb2_variabler(meta)
-```
-
-### pxweb2_varden()
-
-Returnerar giltiga värden för tabellens variabler.
-
-```{r eval=FALSE}
-pxweb2_varden(meta)
-pxweb2_varden(meta, variabler = "Region")
-```
-
-### pxweb2_search_tables()
-
-Söker tabeller.
-
-```{r eval=FALSE}
-pxweb2_search_tables("hushåll")
-```
-
-### pxweb2_query_list_txt_create()
-
-Skapar text för en query-lista.
-
-```{r eval=FALSE}
-pxweb2_query_list_txt_create("TAB6568")
-```
-
-### pxweb2_get_data_script_create()
-
-Skapar ett färdigt kodutkast för datahämtning.
-
-```{r eval=FALSE}
-pxweb2_get_data_script_create("TAB6568")
-```
+| Funktion | Syfte |
+|---|---|
+| `pxweb2_get_data()` | Huvudfunktion: hämtar data från en eller flera tabeller. |
+| `pxweb2_get_metadata()` | Hämtar en tabells metadata. |
+| `pxweb2_table_exists()` | Kontrollerar om ett tabell-id existerar på `base_url`. |
+| `pxweb2_get_variables()` | Returnerar tabellens variabler i tabellform. |
+| `pxweb2_get_values()` | Returnerar giltiga värden för tabellens variabler (inkl. ev. kodlistor/aggregeringar). |
+| `pxweb2_get_codelist()` | Hämtar en enskild kodlista (value set/aggregering) via dess id. |
+| `pxweb2_list_codelists()` | Listar vilka kodlist-id:n en tabell erbjuder. |
+| `pxweb2_table_updated()` | Tidpunkt för tabellens senaste uppdatering hos SCB. |
+| `pxweb2_table_needs_update()` | Jämför tabellens uppdateringstid mot en egen tidpunkt. |
+| `pxweb2_search_tables()` | Söker tabeller. |
+| `pxweb2_query_list_template()` | Skapar text för en query-lista. |
+| `pxweb2_data_script_template()` | Skapar ett färdigt kodutkast för datahämtning. |
 
 ## Sammanfattning
 
-- Använd `pxweb2_hamta_data()` för själva datahämtningen.
+- Använd `pxweb2_get_data()` för själva datahämtningen.
 - Använd `pxweb2_search_tables()` för att hitta tabeller i databasen.
-- Använd `pxweb2_get_data_script_create()` för att snabbt skapa ett skriptutkast för datahämtning.
-- Använd `pxweb2_meta()`, `pxweb2_variabler()` och `pxweb2_varden()` för att förstå tabellens struktur.
+- Använd `pxweb2_data_script_template()` för att snabbt skapa ett skriptutkast för datahämtning.
+- Använd `pxweb2_get_metadata()`, `pxweb2_get_variables()` och `pxweb2_get_values()` för att förstå tabellens struktur, och `pxweb2_get_codelist()`/`pxweb2_list_codelists()` för kodlistor/aggregeringar.
+- Använd `pxweb2_table_updated()`/`pxweb2_table_needs_update()` för att undvika onödiga omhämtningar i schemalagda skript.
 - Använd `"9999"` för senaste tidsperiod.
 - Använd `*` och `?` för wildcard-urval.
-- Använd `deso_regso_versioner_hantera = "senaste"` som standard för DeSO/RegSO.
-- Använd `deso_regso_splitta_kommun = TRUE` för att skapa `kommun_kod` och `kommun` när tabellen innehåller DeSO/RegSO.
+- Använd `deso_regso_versions = "latest"` som standard för DeSO/RegSO.
+- Använd `split_deso_regso_by_municipality = TRUE` för att skapa `kommun_kod` och `kommun` när tabellen innehåller DeSO/RegSO.
