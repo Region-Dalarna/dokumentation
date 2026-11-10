@@ -110,8 +110,8 @@ Upplägget fasas successivt ut i takt med att rapporter migreras till den nuvara
 Framöver planerar vi att, även i den nuvarande modellen, separera produktion och pågående arbete tydligare med en egen utvecklingsbranch för nästa version av en rapport — se [Produktion och nästa version](#produktion-och-nasta-version) nedan.
 
 :::{.callout-note}
-## Förutsättning: HTML-filen måste vara renderad och incheckad
-`webbrapport_publicera()` renderar **inte** åt dig — den utgår från den HTML-fil som redan ligger i repot. Rendera din `.qmd`/`.Rmd` och committa resultatet innan du publicerar. Funktionen varnar (men stoppar inte) om HTML-filen är äldre än källfilen, som en påminnelse ifall du glömt rendera om.
+## Förutsättning: HTML-filen måste vara renderad
+`webbrapport_publicera()` renderar **inte** åt dig — den utgår från den HTML-fil som ligger i repot. Rendera din `.qmd`/`.Rmd` innan du publicerar (se [Uppdatera en webbrapport](#uppdatera-webbrapport)); själva committen av den nya HTML-filen sköter funktionen åt dig. Funktionen varnar (men stoppar inte) om HTML-filen är äldre än källfilen, som en påminnelse ifall du glömt rendera om.
 :::
 
 ### TL;DR
@@ -127,7 +127,7 @@ rddeploy::webbrapport_publicera("laget_i_dalarna", target = "intern")
 rddeploy::webbrapport_avpublicera("laget_i_dalarna", target = "publik")
 ```
 
-### Så fungerar det
+### Så fungerar det{#sa-fungerar-det}
 
 `webbrapport_publicera()` gör följande, helt automatiskt:
 
@@ -147,6 +147,102 @@ Om exakt samma version redan ligger på target-servern gör funktionen ingenting
 :::{.callout-tip}
 ## Bra att känna till: `main`/`master`-fallback
 Våra repon använder ibland `main` och ibland `master` som arbetsbranch (äldre repon tenderar att ha `master`, nyare `main`). `webbrapport_publicera()` och `webbrapport_avpublicera()` hanterar båda automatiskt: om den branch funktionen förväntar sig inte finns, provar den den andra av `main`/`master` och skriver ut ett meddelande om vilken den använde istället. Du behöver alltså normalt inte tänka på vilken av dem just ditt repo använder. (Har repot något helt annat branchnamn stoppar funktionen med ett tydligt fel istället för att gissa vidare.)
+:::
+
+### Uppdatera en webbrapport{#uppdatera-webbrapport}
+
+En webbrapport uppdateras i tre steg, och de två första har var sitt numrerat skript i rapportens repo: först hämtas data, sedan renderas rapporten och till sist publiceras den. Steg 1 och 2 ser likadana ut oavsett om rapporten migrerats till den nuvarande modellen eller fortfarande använder det äldre upplägget med `publicera_rapporter` — det är bara publiceringen (steg 3) som skiljer sig.
+
+#### Steg 1: Hämta data – `1_hamta_data.R`{#steg-1-hamta-data}
+
+Skriptet hämtar data och skapar alla diagram som ggplot-objekt (`gg_*`). Det räknar också fram de variabler som används i rapportens löptext, t.ex. första och senaste år, procentuell förändring eller vilket län som har högst värde. Allt sparas sedan som en R-environment (`.RData`), som rapportens `.Rmd` läser in när den renderas.
+
+Högst upp i skriptet finns två inställningar:
+
+```r
+uppdatera_data = FALSE
+spara_figurer  = FALSE   # funkar bara om uppdatera_data är TRUE
+```
+
+| Inställning | Vad som händer | När det passar |
+|---|---|---|
+| `uppdatera_data = FALSE` | Den senast sparade environmenten läses in med `load()`. Ingen data hämtas, och det går på några sekunder. | Du vill bara ändra text, rubriker eller liknande. |
+| `uppdatera_data = TRUE` | All data hämtas på nytt, alla diagram och textvariabler skapas om, och en ny environment sparas med `save.image()`. Det tar ett par minuter. | Ny statistik har publicerats och rapporten ska uppdateras. |
+| `spara_figurer = TRUE` | Diagrammen sparas också som bildfiler i mappen `Diagram/`. Inställningen har bara effekt tillsammans med `uppdatera_data = TRUE`. | Du behöver diagrammen som bilder, t.ex. till en presentation. |
+
+Diagramskripten ligger antingen i rapportens egen mapp `Skript/` (de läses in med `here()`) eller hämtas direkt från GitHub, främst från repot `Region-Dalarna/diagram`. De flesta hämtar sina data via API, t.ex. från SCB eller Kolada. I vissa undantagsfall sparas diagramskriptet på Region Dalarnas G: och fungerar då bara från en dator som har G: tillgänglig.
+
+:::{.callout-important}
+## Läs igenom texten efter en datauppdatering
+Siffrorna i löptexten uppdateras automatiskt via variablerna, men de formuleringar som omger dem gör det inte. En mening som "har ökat kraftigt sedan 2015" kan bli fel när nya data kommer in. Se också upp med variabler som pekar på ett fast år, t.ex. `utslapp_2015` eller `resande_marknadsandel_2021`. Om en dataserie inte längre innehåller det året blir variabeln tom, utan att något felmeddelande visas.
+:::
+
+:::{.callout-note}
+## Felhantering vid API-anrop
+Vissa diagram anropas via `funktion_upprepa_forsok_om_fel()` (från `func_API.R`). Funktionen gör om anropet om det misslyckas av tillfälliga anslutningsfel (RCurl-fel). Den hjälper inte mot vanliga kodfel. Inställningen `hoppa_over_felhantering = FALSE` ska gälla i produktion. Sätt den till `TRUE` när du testar, så stängs de upprepade försöken av och felen syns direkt.
+:::
+
+:::{.callout-warning}
+## Kräver åtkomst till G:
+Environmenten sparas på G: (`G:/skript/projekt/environments/<rapportnamn>.RData`), och vissa skript läses in därifrån. Skriptet fungerar därför bara från en dator som har G: tillgänglig. Det gäller även med `uppdatera_data = FALSE`.
+:::
+
+:::{.callout-tip}
+## Lägga till ett nytt diagram
+Läs in diagramskriptet med `source()`, spara diagrammet i ett `gg_*`-objekt och räkna fram de textvariabler du behöver. Lägg koden **före** `save.image()` i `if (uppdatera_data == TRUE)`-blocket, annars sparas den inte i environmenten. Kör sedan skriptet en gång med `uppdatera_data = TRUE`.
+
+Lägg till sist in diagrammet i rapportens `.Rmd` med en chunk som anropar objektet. Om diagramfunktionen skapar flera diagram är objektet en lista, och då väljer du diagram med `[[1]]`, `[[2]]` osv.:
+
+````markdown
+```{{r, echo = FALSE, message = FALSE, warning = FALSE, fig.height=5, fig.width=8, fig.align='center'}}
+gg_BNP_prognos[[1]]
+```
+````
+:::
+
+#### Steg 2: Rendera rapporten – `2_knitta_rapport.R`{#steg-2-knitta-rapport}
+
+Rapporten renderas med funktionen `knitta_webbrapport()` i skriptet, **inte** med Knit-knappen i RStudio.
+
+:::{.callout-important}
+## Varför inte Knit-knappen?
+Knit-knappen renderar rapporten i en ny, separat R-session med en tom environment. Diagrammen (`gg_*`) och textvariablerna från steg 1 finns bara i den globala environmenten i din vanliga session, så de saknas i den nya sessionen och renderingen avbryts med felet `object not found`. `knitta_webbrapport()` anropar istället `rmarkdown::render()` med `envir = parent.frame()`. Då renderas rapporten i den session där objekten redan finns.
+:::
+
+Gör så här:
+
+1. Kör steg 1 (`1_hamta_data.R`) i samma R-session, så att diagram och variabler finns i environmenten.
+2. Öppna `2_knitta_rapport.R`, markera allt (Ctrl+A) och kör det (Ctrl+Enter). Sist i skriptet anropas funktionen med rapportens repo-namn:
+
+```r
+knitta_webbrapport(repo_namn = "uppfoljning_strategier_planer")
+```
+
+Funktionen gör följande:
+
+1. Hittar repots mapp. Om du anger `repo_namn` används `c:/gh/<repo_namn>/`. Sökvägen kan ändras med `github_lokal_sokvag`. Om du inte anger `repo_namn` används det RStudio-projekt som är öppet.
+2. Väljer den `.Rmd`-fil i repots rot som ändrades senast.
+3. Renderar den till en HTML-fil med samma namn, i repots rot.
+
+:::{.callout-warning}
+## Två saker att se upp med
+- **Den senast ändrade `.Rmd`-filen väljs.** Om det finns flera `.Rmd`-filer i repots rot, t.ex. en kopia eller en testversion, renderas den som sparades senast. Det är inte nödvändigtvis själva rapporten. Kontrollera i konsolen vilken fil som renderades.
+- **HTML-filen får samma namn som `.Rmd`-filen.** `webbrapport_publicera()` kräver att HTML-filen heter samma som repot (se [Webbrapporter](#webbrapporter)). `.Rmd`-filen måste därför också heta som repot, t.ex. `uppfoljning_strategier_planer.Rmd` i repot `uppfoljning_strategier_planer`.
+:::
+
+#### Steg 3: Publicera{#steg-3-publicera}
+
+När rapporten är renderad publiceras den med `webbrapport_publicera()`:
+
+```r
+rddeploy::webbrapport_publicera("uppfoljning_strategier_planer", target = "publik")
+```
+
+Funktionen committar den nya HTML-filen och övriga ändringar och pushar dem till rätt deploy-branch. Du behöver alltså inte committa separat. Hela flödet beskrivs i [Så fungerar det](#sa-fungerar-det).
+
+:::{.callout-note}
+## Rapporter som ännu inte migrerats
+I det äldre upplägget ersätts steg 3 av skripten `3_kopiera_till_publicera_rapporter_...R` och `4_push_av_hela_repo_till_github.R` (se [Migrering från RMarkdown och publicera_rapporter](#migrering-fran-rmarkdown)). Om repot har ett `3_kopiera...`-skript men ingen `.github/workflows/deploy.yml` använder rapporten fortfarande det äldre upplägget.
 :::
 
 ### Avpublicera en rapport
@@ -374,7 +470,7 @@ Vill du dölja något, byta ikon, eller sätta/ändra en beskrivningstext — ut
 # Förvaltning av landningssidor och infrastruktur{#forvaltning}
 
 :::{.callout-warning}
-## Mestadels för servergadministratörer
+## Mestadels för serveradministratörer
 Det här avsnittet är teknisk dokumentation för hur landningssidorna faktiskt hänger ihop under huven. Ska du bara dölja något, byta ikon eller sätta en beskrivning, räcker [Adminportalen](#styra-landningssida) — du behöver **inte** läsa vidare här. Det som följer är för den som felsöker, bygger vidare på systemet, eller vill skripta samma ändringar som Adminportalen gör via R direkt (se *rdadminportal*-paketet nedan).
 :::
 
@@ -797,7 +893,8 @@ För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalar
 
 - Vi publicerar tre innehållstyper — **webbrapporter**, **dokumentationsportaler** och **Shinyappar** — alla åtkomliga direkt under serverns grund-URL utan mellanled i adressen.
 - Publiceringen styrs av en **branch-modell**: en push till `publicera-publik` eller `publicera-intern` triggar deploy till rätt server via GitHub Actions och self-hosted runners.
-- **Webbrapporter** publiceras nu från sitt eget repo med `webbrapport_publicera("namn", target = ...)` och tas bort med `webbrapport_avpublicera("namn", target = ...)`. HTML-filen måste heta samma som repot och vara renderad och incheckad innan publicering.
+- **Webbrapporter** publiceras nu från sitt eget repo med `webbrapport_publicera("namn", target = ...)` och tas bort med `webbrapport_avpublicera("namn", target = ...)`. HTML-filen måste heta samma som repot och vara renderad innan publicering.
+- En **webbrapport uppdateras** i tre steg: `1_hamta_data.R` hämtar data och sparar diagram och textvariabler i en environment, `2_knitta_rapport.R` renderar rapporten med `knitta_webbrapport()` (inte med Knit-knappen), och `webbrapport_publicera()` publicerar den.
 - **Dokumentationsportaler** skapas med `webbsida_med_portal_skapa_med_github_repo()` och renderas på servern vid varje deploy. Nya sidor i en befintlig portal (t.ex. `dokumentation`) skapas med `dokumentation_sida_skapa()`, som säkerställer rätt filnamn och struktur.
 - **Shinyappar** har sitt eget flöde (`shinyapp_publicera()` m.fl.), dokumenterat separat.
 - Varje server har en **landningssida** som automatiskt listar allt publicerat, regenererad vid varje deploy och nattligt via cron. Genereringslogiken ligger i repot `landningssida` och publiceras med `rddeploy::landningssida_publicera()`.
