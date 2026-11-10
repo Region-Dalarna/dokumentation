@@ -191,12 +191,16 @@ Environmenten sparas på G: (`G:/skript/projekt/environments/<rapportnamn>.RData
 ## Lägga till ett nytt diagram
 Läs in diagramskriptet med `source()`, spara diagrammet i ett `gg_*`-objekt och räkna fram de textvariabler du behöver. Lägg koden **före** `save.image()` i `if (uppdatera_data == TRUE)`-blocket, annars sparas den inte i environmenten. Kör sedan skriptet en gång med `uppdatera_data = TRUE`.
 
-Lägg till sist in diagrammet i rapportens `.Rmd` med en chunk som anropar objektet. Om diagramfunktionen skapar flera diagram är objektet en lista, och då väljer du diagram med `[[1]]`, `[[2]]` osv.:
+Lägg till sist in diagrammet i rapportens `.Rmd` med en chunk som anropar objektet. Om diagramfunktionen skapar flera diagram är objektet en lista, och då väljer du diagram med `[[1]]`, `[[2]]` osv. Det är även möjligt att lägga till diagrammets namn genom att addera $namn efter ggplot-objektet. Vid uppdatering av data finns dock en risk att namnet ändras (från exempelvis 2024 till 2025 som ändelse), vilket medför att den knittade html-filen får en null där det tidigare fanns en figur. Detta kan lösas genom att istället använda [[1]] etc. För två exempel, se nedan
 
 ````markdown
 ```{{r, echo = FALSE, message = FALSE, warning = FALSE, fig.height=5, fig.width=8, fig.align='center'}}
 gg_BNP_prognos[[1]]
 ```
+```{r, echo = FALSE, message = FALSE, warning = FALSE,fig.alt = make_alt(gg_konjB$barometern)}
+gg_konjB$barometern
+```
+
 ````
 :::
 
