@@ -469,8 +469,8 @@ Resten av det här avsnittet handlar om fliken **"Appar och rapporter"**, efters
 Vill du dölja något, byta ikon, eller sätta/ändra en beskrivningstext — utan att röra appens eller rapportens egen kod — gör du det i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`), fliken **"Appar och rapporter"**. Det täcker tre saker per app/rapport:
 
 - **Synlighet** — klicka direkt på Synlig/Dold i tabellen.
-- **Ikon** — markera en rad, klicka "Koppla/ändra ikon".
-- **Beskrivning** — markera en rad, klicka "Sätt/ändra beskrivning". En beskrivning satt här **vinner alltid** över `APP_BESKRIVNING` i koden — praktiskt för appar importerade från externa repon (t.ex. via `git subtree`) där man inte vill eller kan ändra källkoden.
+- **Ikon** — klicka direkt på ikonen (eller på "Välj ikon" om ingen är vald) i tabellen. En dialogruta öppnas där du väljer ikon och sparar, eller tar bort kopplingen.
+- **Beskrivning** — klicka direkt på beskrivningen (eller på "Lägg till beskrivning") i tabellen. En dialogruta öppnas där du skriver, sparar eller tar bort texten. En beskrivning satt här **vinner alltid** över `APP_BESKRIVNING` i koden — praktiskt för appar importerade från externa repon (t.ex. via `git subtree`) där man inte vill eller kan ändra källkoden.
 
 Ändringarna sparas i en delad databas och landningssidan regenereras automatiskt — direkt för den interna servern, inom några sekunder för den publika (en bakgrundstjänst på den publika servern lyssnar på databasändringar). Inget behöver pushas eller deployas.
 
