@@ -466,11 +466,12 @@ Adminportalen (`samhallsanalys.ltdalarna.se/adminportal`) har fyra flikar:
 
 Resten av det här avsnittet handlar om fliken **"Appar och rapporter"**, eftersom den är direkt kopplad till landningssidans innehåll.
 
-Vill du dölja något, byta ikon, eller sätta/ändra en beskrivningstext — utan att röra appens eller rapportens egen kod — gör du det i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`), fliken **"Appar och rapporter"**. Det täcker tre saker per app/rapport:
+Vill du dölja något, byta ikon, eller sätta/ändra en beskrivningstext — utan att röra appens eller rapportens egen kod — gör du det i **Adminportalen** (`samhallsanalys.ltdalarna.se/adminportal`), fliken **"Appar och rapporter"**. Det täcker fyra saker per app/rapport:
 
 - **Synlighet** — klicka direkt på Synlig/Dold i tabellen.
 - **Ikon** — klicka direkt på ikonen (eller på "Välj ikon" om ingen är vald) i tabellen. En dialogruta öppnas där du väljer ikon och sparar, eller tar bort kopplingen.
 - **Beskrivning** — klicka direkt på beskrivningen (eller på "Lägg till beskrivning") i tabellen. En dialogruta öppnas där du skriver, sparar eller tar bort texten. En beskrivning satt här **vinner alltid** över `APP_BESKRIVNING` i koden — praktiskt för appar importerade från externa repon (t.ex. via `git subtree`) där man inte vill eller kan ändra källkoden.
+- **Ordning** — pilarna ▲ ▼ i kolumnen *Ordning* flyttar en post ett steg upp eller ner inom sin grupp (appar eller webbrapporter), i samma ordning som på landningssidan. Posterna visas i en enda lista med rullningslist. Poster du inte flyttat kommer efter de ordnade, alfabetiskt, så en ny app syns utan att någon behöver göra något. Grupperna ligger alltid i ordningen Interaktiva rapporter, Analysrapporter, Publicerade rapporter (pdf), och pdf-rapporterna sorteras på publiceringsdatum, så de har inga pilar. *Återställ ordningen* längst upp tar bort den handpåförda ordningen för vald server.
 
 Ändringarna sparas i en delad databas och landningssidan regenereras automatiskt — direkt för den interna servern, inom några sekunder för den publika (en bakgrundstjänst på den publika servern lyssnar på databasändringar). Inget behöver pushas eller deployas.
 
