@@ -441,7 +441,6 @@ Våra interna R-paket ligger inte i egna repon utan som undermappar i monorepot 
 
 ```r
 renv::install("Region-Dalarna/rdpaket/packages/rdshinyappar")
-renv::install("Region-Dalarna/rdpaket/packages/rdverktyg")
 ```
 
 Är repot privat krävs samma GitHub-autentisering som för `rddeploy::github_commit_push()` m.fl. — en giltig token i `keyring` under service-namnet `github_token` (se avsnittet *Git-konfiguration på nya datorer* ovan). renv hittar den automatiskt via samma mekanism som `usethis`/`gert` använder, så inget extra behöver sättas upp om du redan konfigurerat det för de vanliga GitHub-funktionerna.
