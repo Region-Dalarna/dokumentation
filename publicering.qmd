@@ -82,7 +82,7 @@ För webbrapporter och Shinyappar behöver du inte hantera brancharna manuellt �
 ## ⚠️ Dokumentationsportaler är ett undantag: ingen branch-modell, ingen publicera-funktion
 **Portaler följer inte branch-modellen ovan.** En portal (t.ex. det här repot, `dokumentation`) binds till **en** server redan när repot skapas, via `server`-parametern i `rddeploy::webbsida_med_portal_skapa_med_github_repo()`. Det bakas in i repots egen `.github/workflows/deploy.yml`, som triggar direkt på **push till `main`** — inte på `publicera-publik`/`publicera-intern`.
 
-Det betyder i praktiken: **så fort du pushar en ändring till `main` i ett portal-repo deployas den, automatiskt, utan något extra steg.** Det finns ingen `shinyapp_publicera()`/`webbrapport_publicera()`-motsvarighet för portaler att köra, och det ska det inte heller finnas — det finns inget separat publiceringssteg att trigga. En vanlig `git push`/`rddeploy::github_commit_push("dokumentation")` till `main` *är* publiceringen. Se [Dokumentationsportaler](#dokumentationsportaler) nedan.
+Det betyder i praktiken: **så fort du pushar en ändring till `main` i ett portal-repo deployas den, automatiskt, utan något extra steg.** Det finns ingen `shinyapp_publicera()`/`analysrapport_publicera()`-motsvarighet för portaler att köra, och det ska det inte heller finnas — det finns inget separat publiceringssteg att trigga. En vanlig `git push`/`rddeploy::github_commit_push("dokumentation")` till `main` *är* publiceringen. Se [Dokumentationsportaler](#dokumentationsportaler) nedan.
 :::
 
 ## Webbrapporter{#webbrapporter}
@@ -105,31 +105,31 @@ I det äldre upplägget hade varje rapport fyra numrerade skript i sitt eget rep
 Eftersom publiceringen gick via en **separat kopiering** (steg 3 ovan) kan rapportens eget repo innehålla en **utvecklingsversion** — en kommande uppdatering som ännu inte kopierats vidare — samtidigt som en annan, äldre version ligger publicerad i `publicera_rapporter`. Stöter du på en rapport som fortfarande använder det här upplägget: anta aldrig att filen i rapportens eget repo är det som faktiskt visas på webben. Det som faktiskt är publicerat är filen i `publicera_rapporter/docs/`, inte den som (eventuellt) ligger och väntar i rapportens eget repo.
 :::
 
-Upplägget fasas successivt ut i takt med att rapporter migreras till den nuvarande modellen, där `webbrapport_publicera()` (se [TL;DR](#webbrapporter) nedan) publicerar direkt från rapportens eget repo till våra egna servrar — utan mellansteg, utan separat kopiering och utan `publicera_rapporter`. Så snart en rapport migrerats finns bara en version att hålla reda på: den som ligger i rapportens eget repo. Under övergångsperioden kan båda modellerna existera parallellt.
+Upplägget fasas successivt ut i takt med att rapporter migreras till den nuvarande modellen, där `analysrapport_publicera()` (se [TL;DR](#webbrapporter) nedan) publicerar direkt från rapportens eget repo till våra egna servrar — utan mellansteg, utan separat kopiering och utan `publicera_rapporter`. Så snart en rapport migrerats finns bara en version att hålla reda på: den som ligger i rapportens eget repo. Under övergångsperioden kan båda modellerna existera parallellt.
 
 Framöver planerar vi att, även i den nuvarande modellen, separera produktion och pågående arbete tydligare med en egen utvecklingsbranch för nästa version av en rapport — se [Produktion och nästa version](#produktion-och-nasta-version) nedan.
 
 :::{.callout-note}
 ## Förutsättning: HTML-filen måste vara renderad
-`webbrapport_publicera()` renderar **inte** åt dig — den utgår från den HTML-fil som ligger i repot. Rendera din `.qmd`/`.Rmd` innan du publicerar (se [Uppdatera en webbrapport](#uppdatera-webbrapport)); själva committen av den nya HTML-filen sköter funktionen åt dig. Funktionen varnar (men stoppar inte) om HTML-filen är äldre än källfilen, som en påminnelse ifall du glömt rendera om.
+`analysrapport_publicera()` renderar **inte** åt dig — den utgår från den HTML-fil som ligger i repot. Rendera din `.qmd`/`.Rmd` innan du publicerar (se [Uppdatera en webbrapport](#uppdatera-webbrapport)); själva committen av den nya HTML-filen sköter funktionen åt dig. Funktionen varnar (men stoppar inte) om HTML-filen är äldre än källfilen, som en påminnelse ifall du glömt rendera om.
 :::
 
 ### TL;DR
 
 ```r
 # Publicera till publika servern
-rddeploy::webbrapport_publicera("laget_i_dalarna", target = "publik")
+rddeploy::analysrapport_publicera("laget_i_dalarna", target = "publik")
 
 # Publicera till interna servern
-rddeploy::webbrapport_publicera("laget_i_dalarna", target = "intern")
+rddeploy::analysrapport_publicera("laget_i_dalarna", target = "intern")
 
 # Ta bort en publicerad rapport igen
-rddeploy::webbrapport_avpublicera("laget_i_dalarna", target = "publik")
+rddeploy::analysrapport_avpublicera("laget_i_dalarna", target = "publik")
 ```
 
 ### Så fungerar det{#sa-fungerar-det}
 
-`webbrapport_publicera()` gör följande, helt automatiskt:
+`analysrapport_publicera()` gör följande, helt automatiskt:
 
 1. Kontrollerar att HTML-filen (`<reponamn>.html`) finns i repots rot.
 2. Varnar om HTML-filen är äldre än en eventuell `.qmd`/`.Rmd`-källa (med en toleransmarginal, så nästan samtidiga sparningar inte ger falsklarm).
@@ -146,7 +146,7 @@ Om exakt samma version redan ligger på target-servern gör funktionen ingenting
 
 :::{.callout-tip}
 ## Bra att känna till: `main`/`master`-fallback
-Våra repon använder ibland `main` och ibland `master` som arbetsbranch (äldre repon tenderar att ha `master`, nyare `main`). `webbrapport_publicera()` och `webbrapport_avpublicera()` hanterar båda automatiskt: om den branch funktionen förväntar sig inte finns, provar den den andra av `main`/`master` och skriver ut ett meddelande om vilken den använde istället. Du behöver alltså normalt inte tänka på vilken av dem just ditt repo använder. (Har repot något helt annat branchnamn stoppar funktionen med ett tydligt fel istället för att gissa vidare.)
+Våra repon använder ibland `main` och ibland `master` som arbetsbranch (äldre repon tenderar att ha `master`, nyare `main`). `analysrapport_publicera()` och `analysrapport_avpublicera()` hanterar båda automatiskt: om den branch funktionen förväntar sig inte finns, provar den den andra av `main`/`master` och skriver ut ett meddelande om vilken den använde istället. Du behöver alltså normalt inte tänka på vilken av dem just ditt repo använder. (Har repot något helt annat branchnamn stoppar funktionen med ett tydligt fel istället för att gissa vidare.)
 :::
 
 ### Uppdatera en webbrapport{#uppdatera-webbrapport}
@@ -234,15 +234,15 @@ Funktionen gör följande:
 :::{.callout-warning}
 ## Två saker att se upp med
 - **Den senast ändrade `.Rmd`-filen väljs.** Om det finns flera `.Rmd`-filer i repots rot, t.ex. en kopia eller en testversion, renderas den som sparades senast. Det är inte nödvändigtvis själva rapporten. Kontrollera i konsolen vilken fil som renderades.
-- **HTML-filen får samma namn som `.Rmd`-filen.** `webbrapport_publicera()` kräver att HTML-filen heter samma som repot (se [Webbrapporter](#webbrapporter)). `.Rmd`-filen måste därför också heta som repot, t.ex. `uppfoljning_strategier_planer.Rmd` i repot `uppfoljning_strategier_planer`.
+- **HTML-filen får samma namn som `.Rmd`-filen.** `analysrapport_publicera()` kräver att HTML-filen heter samma som repot (se [Webbrapporter](#webbrapporter)). `.Rmd`-filen måste därför också heta som repot, t.ex. `uppfoljning_strategier_planer.Rmd` i repot `uppfoljning_strategier_planer`.
 :::
 
 #### Steg 3: Publicera{#steg-3-publicera}
 
-När rapporten är renderad publiceras den med `webbrapport_publicera()`:
+När rapporten är renderad publiceras den med `analysrapport_publicera()`:
 
 ```r
-rddeploy::webbrapport_publicera("uppfoljning_strategier_planer", target = "publik")
+rddeploy::analysrapport_publicera("uppfoljning_strategier_planer", target = "publik")
 ```
 
 Funktionen committar den nya HTML-filen och övriga ändringar och pushar dem till rätt deploy-branch. Du behöver alltså inte committa separat. Hela flödet beskrivs i [Så fungerar det](#sa-fungerar-det).
@@ -255,7 +255,7 @@ I det äldre upplägget ersätts steg 3 av skripten `3_kopiera_till_publicera_ra
 ### Avpublicera en rapport
 
 ```r
-webbrapport_avpublicera("laget_i_dalarna", target = "intern")
+analysrapport_avpublicera("laget_i_dalarna", target = "intern")
 ```
 
 Funktionen frågar interaktivt efter bekräftelse (du får skriva repo-namnet) innan den triggar borttagningen. Den tar bort rapportens mapp från `/srv/rapporter/<reponamn>/` på vald server och regenererar landningssidan.
@@ -283,7 +283,7 @@ Upptäcker du under tiden ett stavfel eller annat litet fel i den **publicerade*
 ```r
 gert::git_branch_checkout("main", repo = "sokvag/till/rapporten")
 # ... rätta felet ...
-rddeploy::webbrapport_publicera("laget_i_dalarna", target = "publik")
+rddeploy::analysrapport_publicera("laget_i_dalarna", target = "publik")
 ```
 
 Fortsätt sedan jobba i `nasta-version` som om inget hänt. När nästa version är klar att publiceras, slå ihop den med `main` och publicera:
@@ -291,7 +291,7 @@ Fortsätt sedan jobba i `nasta-version` som om inget hänt. När nästa version 
 ```r
 gert::git_branch_checkout("main", repo = "sokvag/till/rapporten")
 gert::git_merge("nasta-version", repo = "sokvag/till/rapporten")
-rddeploy::webbrapport_publicera("laget_i_dalarna", target = "publik")
+rddeploy::analysrapport_publicera("laget_i_dalarna", target = "publik")
 ```
 
 :::{.callout-tip}
@@ -901,8 +901,8 @@ För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalar
 
 - Vi publicerar tre innehållstyper — **webbrapporter**, **dokumentationsportaler** och **Shinyappar** — alla åtkomliga direkt under serverns grund-URL utan mellanled i adressen.
 - Publiceringen styrs av en **branch-modell**: en push till `publicera-publik` eller `publicera-intern` triggar deploy till rätt server via GitHub Actions och self-hosted runners.
-- **Webbrapporter** publiceras nu från sitt eget repo med `webbrapport_publicera("namn", target = ...)` och tas bort med `webbrapport_avpublicera("namn", target = ...)`. HTML-filen måste heta samma som repot och vara renderad innan publicering.
-- En **webbrapport uppdateras** i tre steg: `1_hamta_data.R` hämtar data och sparar diagram och textvariabler i en environment, `2_knitta_rapport.R` renderar rapporten med `knitta_webbrapport()` (inte med Knit-knappen), och `webbrapport_publicera()` publicerar den.
+- **Webbrapporter** publiceras nu från sitt eget repo med `analysrapport_publicera("namn", target = ...)` och tas bort med `analysrapport_avpublicera("namn", target = ...)`. HTML-filen måste heta samma som repot och vara renderad innan publicering.
+- En **webbrapport uppdateras** i tre steg: `1_hamta_data.R` hämtar data och sparar diagram och textvariabler i en environment, `2_knitta_rapport.R` renderar rapporten med `knitta_webbrapport()` (inte med Knit-knappen), och `analysrapport_publicera()` publicerar den.
 - **Dokumentationsportaler** skapas med `webbsida_med_portal_skapa_med_github_repo()` och renderas på servern vid varje deploy. Nya sidor i en befintlig portal (t.ex. `dokumentation`) skapas med `dokumentation_sida_skapa()`, som säkerställer rätt filnamn och struktur.
 - **Shinyappar** har sitt eget flöde (`shinyapp_publicera()` m.fl.), dokumenterat separat.
 - Varje server har en **landningssida** som automatiskt listar allt publicerat, regenererad vid varje deploy och nattligt via cron. Genereringslogiken ligger i repot `landningssida` och publiceras med `rddeploy::landningssida_publicera()`.

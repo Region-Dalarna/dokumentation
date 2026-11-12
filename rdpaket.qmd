@@ -181,7 +181,7 @@ Samlar Region Dalarnas arbetsflöden för git och GitHub, publicering av webbrap
 
 ::: {.callout-tip}
 ## Det här är inte samma sak som publicering
-Funktionerna i det här avsnittet flyttar kod mellan din dator och GitHub (`main`/`master`). De har inget att göra med att **publicera** en Shinyapp, webbrapport eller dokumentationsportal till en server — det täcks av [Publicering på webben](publicering.html) (`shinyapp_publicera()`, `webbrapport_publicera()` m.fl.).
+Funktionerna i det här avsnittet flyttar kod mellan din dator och GitHub (`main`/`master`). De har inget att göra med att **publicera** en Shinyapp, webbrapport eller dokumentationsportal till en server — det täcks av [Publicering på webben](publicering.html) (`shinyapp_publicera()`, `analysrapport_publicera()` m.fl.).
 :::
 
 ### Innan du börjar: konfiguration och autentisering{#innan-du-borjar-konfiguration-och-autentisering}
@@ -311,7 +311,7 @@ rddeploy::github_lagg_till_repo_fran_github(
 
 ### Publicering: Shinyappar, webbrapporter och portaler
 
-`rddeploy` innehåller också funktionerna för att skapa och publicera Shinyappar, webbrapporter och dokumentationsportaler (`shinyapp_publicera()`, `webbrapport_publicera()`, `webbsida_med_portal_skapa_med_github_repo()` m.fl.) — det täcks i sin helhet av [Publicering på webben](publicering.html), inte här.
+`rddeploy` innehåller också funktionerna för att skapa och publicera Shinyappar, webbrapporter och dokumentationsportaler (`shinyapp_publicera()`, `analysrapport_publicera()`, `webbsida_med_portal_skapa_med_github_repo()` m.fl.) — det täcks i sin helhet av [Publicering på webben](publicering.html), inte här.
 
 ## rdadminportal — adminportal och serverdrift{#rdadminportal}
 

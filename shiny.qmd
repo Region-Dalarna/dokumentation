@@ -34,7 +34,7 @@ Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-se
 
 :::{.callout-tip}
 ## 📄 Du ska skapa eller revidera en statisk webbrapport (RMarkdown/Quarto)
-Läs om själva publiceringsflödet i den separata dokumentationen **[Publicering](publicering.html)** — där beskrivs hur en webbrapport publiceras från sitt eget repo med `webbrapport_publicera()`.
+Läs om själva publiceringsflödet i den separata dokumentationen **[Publicering](publicering.html)** — där beskrivs hur en webbrapport publiceras från sitt eget repo med `analysrapport_publicera()`.
 
 Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-server*.
 :::
