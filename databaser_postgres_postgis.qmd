@@ -1,7 +1,7 @@
 ---
-title: "PostgreSQL/PostGIS "
-subtitle: "Hur vi arbetar med PostgreSQL och PostGIS i func_GIS.R"
-listing-description: "Hur vi arbetar med PostgreSQL- och PostGIS-databaser från R via func_GIS.R. Uppdelat i databashantering, läsning/skrivning av data samt beräkningar (isokroner)."
+title: "Hantering av databaser – Postgres och PostGIS"
+subtitle: "Hur vi arbetar med PostgreSQL och PostGIS i R, med paketen rdpostgres, rdgis och rdgeorouting"
+listing-description: "Hur vi arbetar med PostgreSQL- och PostGIS-databaser från R med rdpostgres, rdgis och rdgeorouting. Uppdelat i databashantering, läsning/skrivning av data samt beräkningar (isokroner och pendling)."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -23,17 +23,24 @@ På denna sida beskriver vi hur vi arbetar med våra PostgreSQL- och PostGIS-dat
 2. **[Läsa och skriva data](#lasa-skriva-data)** — hämta och spara tabeller, dataframes och sf-objekt (inklusive kartlager).
 3. **[Beräkningar](#berakningar)** — köra rumsliga analyser, t.ex. isokroner.
 
-Funktionerna finns i *func_GIS.R* och laddas in med:
+Funktionerna finns i tre paket i [rdpaket](rdpaket.html), uppdelade efter vad de gör:
+
+| Paket | Det här använder du det till |
+|-------|------------------------------|
+| `rdpostgres` | Uppkoppling, databaser, scheman, användare, roller och behörigheter, läsa och skriva tabeller (dataframes), metadata, PxWeb2-synkronisering, aktivera PostGIS samt kopiera och flytta tabeller |
+| `rdgis` | Läsa och skriva `sf`-objekt till PostGIS, hämta kartlager (`hamta_karta()`, `kartifiera()`), kopiera tabeller mellan databaser samt områdesnycklar |
+| `rdgeorouting` | Rumsliga beräkningar över vägnätet: isokroner och pendling |
 
 ```r
-source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
-       encoding = "utf-8", echo = FALSE)
+library(rdpostgres)
+library(rdgis)          # när du arbetar med sf-data och kartlager
+library(rdgeorouting)   # isokroner och pendling
+
+# eller allt på en gång:
+library(rd)
 ```
 
-:::{.callout-note}
-## Samma funktioner finns nu i rdpaket
-Funktionerna här finns också som paket i [`rdpaket`](rdpaket.html), uppdelade efter vad de gör: databasadministration, tabeller och `postgis_aktivera_i_postgres_db()`, `postgis_kopiera_tabell()` och `postgis_flytta_tabell()` finns i **`rdpostgres`**; `hamta_karta()`, `postgis_sf_till_postgistabell()`, `postgis_databas_skriv_med_metadata()`, `postgis_kopiera_tabell_mellan_databaser()` och områdesnycklarna (`postgis_skapa_omradesnyckel_tabell_vy()`) finns i **`rdgis`**; isokroner och pendling finns i **`rdgeorouting`**. Skripten på den här sidan fortsätter fungera med `source()` av *func_GIS.R*, men nya skript bör använda paketen.
-:::
+I avsnitten nedan står det vilket paket en funktion kommer från när det inte är `rdpostgres`. Tidigare låg alla funktionerna i *func_GIS.R*; nya skript ska använda paketen.
 
 ## Vem är detta för — och var ska jag börja läsa?
 
@@ -106,6 +113,8 @@ Skapar en uppkoppling till databasen med standardinloggningsuppgifter. Läsanvä
 con <- uppkoppling_db()
 ```
 
+Utan `service_name` används det inbyggda läskontot `geodata_las` (utan något meddelande, eftersom det är normalfallet). Behöver du rättigheter utöver läskontots: spara egna uppgifter med `keyring::key_set()` och ange dem via `service_name`. Funktionen `rdpostgres_auth_check()` visar vilka uppgifter som finns sparade.
+
 I de allra flesta fall räcker det att skicka med den första parametern (`db_name`) — resten har bra standardvärden. Vill du till exempel hämta data från geodatabasen räcker det med:
 
 ```r
@@ -129,10 +138,11 @@ con <- uppkoppling_db(
 |-----------|----------|-------------|
 | `db_name` | `"geodata"` | Databasens namn |
 | `service_name` | `NA` | Keyring-tjänst för lösenordsuppslag |
-| `db_host` | `"WFALMITVS526.ltdalarna.se"` | Serveradress |
-| `db_port` | `5432` | Port |
-| `db_user` | `"geodata_las"` | Användarnamn (om `service_name` är `NA`) |
-| `db_password` | `"geodata_las"` | Lösenord (om `service_name` är `NA`) |
+| `db_host` | `"WFALMITVS526.ltdalarna.se"` | Serveradress. Kan ändras för sessionen med `options(rdpostgres.db_host = "...")` |
+| `db_port` | `5432` | Port (`options(rdpostgres.db_port = ...)`) |
+| `db_options` | `"-c search_path=public"` | Extra anslutningsalternativ (`options(rdpostgres.db_options = ...)`) |
+| `db_user` | `NA` | Användarnamn. Om `service_name` och `db_user` båda är `NA` används läskontot `geodata_las` |
+| `db_password` | `NA` | Lösenord. Samma som användarnamnet för läskontot `geodata_las` |
 
 :::{.callout-note}
 Om du kör på samma server som databasen körs på (`nodename` matchar `db_host`) används `"localhost"` automatiskt — utan manuell konfiguration.
@@ -159,7 +169,7 @@ Kom alltid ihåg att stänga uppkopplingen när du är klar — speciellt om du 
 DBI::dbDisconnect(con)
 ```
 
-De flesta funktioner i `func_GIS.R` hanterar detta automatiskt via `default_flagga` om `con = "default"` används.
+Funktioner som har `con = "default"` som standard (t.ex. `postgres_tabell_till_df()`) kopplar upp själva och stänger uppkopplingen när de är klara.
 
 ## Databaser {#databaser}
 
@@ -194,7 +204,7 @@ postgres_databas_ta_bort(con = con_adm, databasnamn = "min_databas")
 
 ### `postgres_lista_scheman_tabeller()` — lista scheman och tabeller
 
-Returnerar en namngiven lista där varje element är ett schema, och värdet är en vektor med tabellnamnen (inkl. vyer och materialiserade vyer) i det schemat.
+Returnerar en namngiven lista där varje element är ett schema, och värdet är en vektor med tabellnamnen (inkl. vyer och materialiserade vyer) i det schemat. Systemscheman och systemtabeller döljs; `visa_system_tabeller = TRUE` visar dem också.
 
 ```r
 con <- uppkoppling_db()
@@ -467,11 +477,6 @@ postgres_alla_rattigheter(con = con_adm)
 postgres_alla_rattigheter(con = con_adm, anvandarnamn = "anna_andersson")
 ```
 
-:::{.callout-note}
-## Dubbeldefinierad funktion i koden
-`postgres_alla_rattigheter()` finns för närvarande definierad två gånger i `func_GIS.R`. Den andra definitionen skriver tyst över den första, så det är alltid den senare versionen som faktiskt används i praktiken. Värt att städa bort den överflödiga definitionen i koden.
-:::
-
 ### `postgres_alla_rattigheter_server()` — rättighetsbild över hela servern
 
 Loopar igenom alla databaser på servern och sammanställer rättigheterna för en specifik användare. Kräver att `uppkoppling_adm()` fungerar mot varje databas.
@@ -484,12 +489,12 @@ postgres_alla_rattigheter_server(
 )
 ```
 
-### `postgres_test()` — visa rollärv
+### `postgres_lista_rollmedlemskap()` — visa rollärv
 
-Listar alla roll-arvs-relationer på servern (vilka roller/användare som är medlemmar i vilka roller).
+Listar alla roll-arvs-relationer på servern (vilka roller/användare som är medlemmar i vilka roller). Hette tidigare `postgres_test()`.
 
 ```r
-postgres_test(con)
+postgres_lista_rollmedlemskap(con)
 ```
 
 # Del 2: Läsa och skriva data {#lasa-skriva-data}
@@ -543,6 +548,8 @@ df <- oppnadata_hamta(schema = "scb", tabell = "befolkning_lan")
 
 ### `postgis_postgistabell_till_sf()` — läs PostGIS-tabell till sf-objekt
 
+*Paket: `rdgis`*
+
 Läser en PostGIS-tabell och returnerar ett `sf`-objekt. Stöder valfri WHERE/ORDER BY-sats.
 
 ```r
@@ -556,9 +563,11 @@ sf_obj <- postgis_postgistabell_till_sf(
 
 ### Hämta färdiga kartlager (schemat `karta` i `geodata`) {#hamta-kartlager}
 
-Två funktioner gör det enklare att hämta och koppla på geometri från kartlagren i `geodata`-databasen, utan att man själv behöver känna till exakt tabellnamn eller vilken kolumn som är id-kolumn — de bygger på `postgis_postgistabell_till_sf()` internt.
+Tre funktioner i `rdgis` gör det enklare att hämta och koppla på geometri från kartlagren i `geodata`-databasen, utan att man själv behöver känna till exakt tabellnamn eller vilken kolumn som är id-kolumn — de bygger på `postgis_postgistabell_till_sf()` internt.
 
 #### `hamta_karta()` — hämta ett kartlager
+
+*Paket: `rdgis`*
 
 Hämtar ett geografiskt lager (kommuner, län, tätorter, deso, regso, distrikt, nuts2/nuts3, la-områden, världen m.fl.) från schemat `karta` i `geodata`-databasen, som ett `sf`-objekt. Kan filtreras på läns- och/eller kommunkoder.
 
@@ -585,6 +594,8 @@ Om karttypen inte hittas bland sökorden i `hamta_karttabell()` ges en varning o
 
 #### `hamta_karttabell()` — lista tillgängliga kartlager
 
+*Paket: `rdgis`*
+
 Returnerar en dataframe med alla kartlager som går att hämta med `hamta_karta()`/`kartifiera()`, inklusive vilka sökord (alias) som mappar till varje lager samt vilken kolumn som används för id, län respektive kommun.
 
 ```r
@@ -592,6 +603,8 @@ hamta_karttabell()
 ```
 
 #### `kartifiera()` — koppla geometri till en befintlig dataframe
+
+*Paket: `rdgis`*
 
 Tar en dataframe med en kolumn som innehåller regionkoder (t.ex. kommunkod, länskod, desokod, tätortskod …) och kopplar automatiskt på rätt geometrilager. Karttypen identifieras automatiskt utifrån kodernas längd och format — man behöver alltså inte själv ange vilken sorts kod det rör sig om. Returnerar ett `sf`-objekt.
 
@@ -641,7 +654,7 @@ postgres_databas_skriv_med_metadata(
   schema                  = "scb",
   tabell                  = "befolkning",
   id_kol                  = "id",
-  postgis_addera_data     = FALSE,
+  addera_data             = FALSE,
   kommentar_metadata      = "Uppdaterat från SCB 2024-03",
   version_datum           = "2024-03-01",
   version_tid             = "00:00:00"
@@ -649,6 +662,8 @@ postgres_databas_skriv_med_metadata(
 ```
 
 ### `postgis_sf_till_postgistabell()` — skriv sf-objekt till databas
+
+*Paket: `rdgis`*
 
 Skriver ett `sf`-objekt till en PostGIS-tabell. Skapar schema om det saknas, hanterar truncate/overwrite, skapar spatialt index och primärnyckel.
 
@@ -671,6 +686,8 @@ Skillnaden mellan `addera_data` och `skriv_over_tabell_om_finns`: med `addera_da
 :::
 
 ### `postgis_databas_skriv_med_metadata()` — skriv sf-objekt med metadatalogning
+
+*Paket: `rdgis`*
 
 Samma som `postgis_sf_till_postgistabell()` men loggar även till `metadata.uppdateringar`.
 
@@ -704,7 +721,9 @@ postgis_kopiera_tabell(
 
 ### `postgis_kopiera_tabell_mellan_databaser()` — kopiera tabell mellan databaser
 
-Kräver uppkopplingar mot båda databaserna. Loggar valfritt metadata i måldatabasen.
+*Paket: `rdgis`*
+
+Kräver uppkopplingar mot båda databaserna. Läser tabellen via `sf`, skriver den till målet, uppdaterar koordinatsystemet (SRID) och loggar i `metadata.uppdateringar` i måldatabasen (versionsdatum och -tid hämtas från källans metadata om de finns).
 
 ```r
 con_fran <- uppkoppling_adm("geodata")
@@ -716,8 +735,7 @@ postgis_kopiera_tabell_mellan_databaser(
   schema_fran                   = "karta",
   tabell_fran                   = "kommuner",
   schema_till                   = "karta",
-  tabell_till                   = "kommuner",
-  lagg_till_metadata_i_till_databas = TRUE
+  tabell_till                   = "kommuner"
 )
 ```
 
@@ -856,26 +874,17 @@ postgres_pxweb2_uppdatera_tabell(
 )
 ```
 
-### `postgres_pxweb2_uppdatera_tabell_skapa_skript()` — generera skriptskelett
-
-Skapar ett färdigt `postgres_pxweb2_uppdatera_tabell()`-anrop och kopierar det till urklippshanteraren.
-
-```r
-postgres_pxweb2_uppdatera_tabell_skapa_skript(
-  tabell_id_pxweb2 = "TAB5689",
-  tabell_db        = "befolkning_lan"
-)
-```
-
 # Del 3: Beräkningar {#berakningar}
 
 Det här avsnittet täcker funktioner som gör faktiska rumsliga beräkningar i databasen, snarare än att bara läsa eller skriva befintlig data.
 
 ## Isokroner (tillgänglighetsanalyser) {#isokroner}
 
-Isokroner är polygoner som visar hur långt man kan nå från en punkt inom en given tid eller ett givet avstånd. Funktionerna bygger på ett vägnätsgraf i PostGIS.
+Isokroner är polygoner som visar hur långt man kan nå från en punkt inom en given tid eller ett givet avstånd. Funktionerna bygger på en vägnätsgraf i PostGIS (pgRouting) och finns i `rdgeorouting`.
 
 ### `postgis_isokroner_bil()` — körtidsbaserade isokroner
+
+*Paket: `rdgeorouting`*
 
 ```r
 isokroner <- postgis_isokroner_bil(
@@ -899,13 +908,34 @@ Det finns fyra varianter med samma parametrar:
 | `postgis_isokroner_cykel()` | Cykel | minuter |
 | `postgis_isokroner_meter()` | Fågelvägen | meter |
 
+## Pendling: nätverk och kraftfält {#pendling}
+
+*Paket: `rdgeorouting`*
+
+Pendlingsfunktionerna söker kortaste väg mellan tätorter i vägnätet och bygger på en tabell med pendlingsrelationer (`from_id`, `to_id`, `n`, där koderna är SCB:s tätortskoder). Beräkningen körs i databasen `ruttanalyser`, mot bilnätet `grafer.nvdb_bil_adresser`; tätorternas punkter hämtas ur `karta.tatortspunkter` i `geodata`. Det går att byta vägnät med parametrarna `kant_tabell`, `nod_tabell`, `kant_id_kol` och `kost_kol`.
+
+```r
+library(rdgeorouting)
+
+# pendlingsrelationer, t.ex. rutor.pend_relation_tatorter i sekretessdatabasen
+pend <- ...
+
+# pendlingsnätverk: antal pendlare per vägsträcka (sf)
+natverk <- pendling_natverk(pend)
+
+# kraftfält: lokala arbetsmarknadscentrum, satelliter och kraftfältens polygoner
+kraftfalt <- pendling_kraftfalt(pend)
+```
+
+Kraftfälten som färdig leaflet-karta görs med `rddiagramkatalog::karta_lf_kraftfalt_scb()`.
+
 # Övriga hjälpfunktioner
 
 Generella hjälpfunktioner som används tvärs över de tre delarna ovan.
 
 ## `postgres_felmeddelande()` — formatera felmeddelande
 
-Intern hjälpfunktion som identifierar om ett PostgreSQL-fel beror på bristande behörighet och formaterar ett tydligare felmeddelande med råd om att använda `uppkoppling_adm()`.
+Hjälpfunktion som identifierar om ett PostgreSQL-fel beror på bristande behörighet och formaterar ett tydligare felmeddelande med råd om att använda `uppkoppling_adm()`.
 
 ## `logga_event()` — logga händelser till fil
 
@@ -918,31 +948,34 @@ logga_event("Uppdatering av befolkningstabellen lyckades",
 
 # Sammanfattning
 
-**Del 1 — Databashantering (kräver admin):**
+**Del 1 — Databashantering (kräver admin), `rdpostgres`:**
 
-- Uppkoppling: `uppkoppling_db()`, `uppkoppling_adm()`
+- Uppkoppling: `uppkoppling_db()`, `uppkoppling_adm()`, `rdpostgres_auth_check()`
 - Databaser: `postgres_lista_databaser()`, `postgres_databas_skapa/ta_bort()`
 - Scheman: `postgres_lista_scheman_tabeller()`, `postgres_schema_skapa_om_inte_finns/ta_bort/finns()`
-- Tillägg: `postgis_installera_i_postgres_db()`, `postgis_aktivera_i_postgres_db()`
+- Tillägg: `postgis_aktivera_i_postgres_db()` (alias `postgis_installera_i_postgres_db()`)
 - Användare: `postgres_anvandare_lagg_till/ta_bort()`, `postgres_losenord_byt_for_anvandare()`
 - Roller: `postgres_roll_lagg_till/ta_bort()`, `postgres_roll_tilldela_till_anvandare()`, `postgres_roll_ta_bort_fran_anvandare()`
 - Manuella behörigheter: `postgres_rattigheter_anvandare_lagg_till/ta_bort()`, `postgres_lista_giltiga_rattigheter()`
 - Auto-grants: `postgres_grants_auto_skapa/pa_befintliga_objekt/visa/testa()`
-- Granska: `postgres_lista_roller_anvandare()`, `postgres_lista_behorighet_till_scheman()`, `postgres_alla_rattigheter()`, `postgres_alla_rattigheter_server()`, `postgres_test()`
+- Granska: `postgres_lista_roller_anvandare()`, `postgres_lista_behorighet_till_scheman()`, `postgres_alla_rattigheter()`, `postgres_alla_rattigheter_server()`, `postgres_lista_rollmedlemskap()`
 
 **Del 2 — Läsa och skriva data:**
 
-- Läsa: `postgres_tabell_till_df()`, `postgres_meta()`, `postgres_hamta_oppnadata()`/`oppnadata_hamta()`, `postgis_postgistabell_till_sf()`, `hamta_karta()`, `hamta_karttabell()`, `kartifiera()`
-- Skriva: `postgres_df_till_postgrestabell()`, `postgres_databas_skriv_med_metadata()`, `postgis_sf_till_postgistabell()`, `postgis_databas_skriv_med_metadata()`
-- Kopiera/flytta: `postgis_kopiera_tabell()`, `postgis_kopiera_tabell_mellan_databaser()`, `postgis_flytta_tabell()`
-- Tabellhantering: `postgres_tabell_finns/ta_bort()`, `postgres_lista_kolumnnamn_i_schema()`, `postgres_finns_schema_tabell_kolumner()`
-- Metadata: `postgres_metadata_uppdatera()`, `postgres_tabell_uppdaterades()`, `postgres_meta_skapa_vy_aktuell_version()`, `fil_dataset_uppdaterades()`
-- PxWeb2: `postgres_pxweb2_uppdatera_tabell()`, `postgres_pxweb2_uppdatera_tabell_skapa_skript()`
+- Läsa, `rdpostgres`: `postgres_tabell_till_df()`, `postgres_meta()`, `postgres_hamta_oppnadata()`/`oppnadata_hamta()`
+- Läsa, `rdgis`: `postgis_postgistabell_till_sf()`, `hamta_karta()`, `hamta_karttabell()`, `kartifiera()`
+- Skriva, `rdpostgres`: `postgres_df_till_postgrestabell()`, `postgres_databas_skriv_med_metadata()`
+- Skriva, `rdgis`: `postgis_sf_till_postgistabell()`, `postgis_databas_skriv_med_metadata()`
+- Kopiera/flytta: `postgis_kopiera_tabell()`, `postgis_flytta_tabell()` (`rdpostgres`), `postgis_kopiera_tabell_mellan_databaser()` (`rdgis`)
+- Tabellhantering, `rdpostgres`: `postgres_tabell_finns/ta_bort()`, `postgres_lista_kolumnnamn_i_schema()`, `postgres_finns_schema_tabell_kolumner()`
+- Metadata, `rdpostgres`: `postgres_metadata_uppdatera()`, `postgres_tabell_uppdaterades()`, `postgres_meta_skapa_vy_aktuell_version()`, `fil_dataset_uppdaterades()`
+- PxWeb2, `rdpostgres`: `postgres_pxweb2_uppdatera_tabell()`
 
-**Del 3 — Beräkningar:**
+**Del 3 — Beräkningar, `rdgeorouting`:**
 
 - Isokroner: `postgis_isokroner_bil/gang/cykel/meter()`
+- Pendling: `pendling_natverk()`, `pendling_kraftfalt()`
 
-**Övrigt:**
+**Övrigt, `rdpostgres`:**
 
 - `postgres_felmeddelande()`, `logga_event()`
