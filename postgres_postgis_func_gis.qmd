@@ -30,6 +30,11 @@ source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GI
        encoding = "utf-8", echo = FALSE)
 ```
 
+:::{.callout-note}
+## Samma funktioner finns nu i rdpaket
+Funktionerna här finns också som paket i [`rdpaket`](rdpaket.html), uppdelade efter vad de gör: databasadministration, tabeller och `postgis_aktivera_i_postgres_db()`, `postgis_kopiera_tabell()` och `postgis_flytta_tabell()` finns i **`rdpostgres`**; `hamta_karta()`, `postgis_sf_till_postgistabell()`, `postgis_databas_skriv_med_metadata()`, `postgis_kopiera_tabell_mellan_databaser()` och områdesnycklarna (`postgis_skapa_omradesnyckel_tabell_vy()`) finns i **`rdgis`**; isokroner och pendling finns i **`rdgeorouting`**. Skripten på den här sidan fortsätter fungera med `source()` av *func_GIS.R*, men nya skript bör använda paketen.
+:::
+
 ## Vem är detta för — och var ska jag börja läsa?
 
 :::{.callout-tip}
