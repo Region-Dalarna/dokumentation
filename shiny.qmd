@@ -1,7 +1,7 @@
 ---
 title: "Shiny"
-subtitle: "Hur vi jobbar med Shinyappar och konfigurering och förvaltning av Shinyservrar samt webbrapporter och dokumentation"
-listing-description: "Övergripande dokumentation för Shinyappar, webbrapporter och dokumentationsportaler vid Samhällsanalys — hur man skapar, reviderar och publicerar dem, samt hur Shiny-servrarna, GitHub Actions-deployen och delad R-infrastruktur är uppsatta och underhålls."
+subtitle: "Hur vi jobbar med Shinyappar och konfigurering och förvaltning av Shinyservrar samt analysrapporter och dokumentation"
+listing-description: "Övergripande dokumentation för Shinyappar, analysrapporter och dokumentationsportaler vid Samhällsanalys — hur man skapar, reviderar och publicerar dem, samt hur Shiny-servrarna, GitHub Actions-deployen och delad R-infrastruktur är uppsatta och underhålls."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -17,9 +17,9 @@ format:
 
 # Inledning
 
-På denna sida beskriver vi hur vi arbetar med skapande, förvaltning, uppdatering och publicering av våra Shiny-rapporter och statiska webbrapporter (RMarkdown/Quarto) samt även hur vi installerar och konfigurerar en Shiny-server. Syftet är att ha ett smidigt, snabbt och säkert flöde där endast kvalitetssäkrade versioner skickas till vår Shiny-server, samt även att ha dokumentation på hur vi installerar och konfigurerar en Shiny-server för att kunna felsöka eller vid behov installera fler servrar.
+På denna sida beskriver vi hur vi arbetar med skapande, förvaltning, uppdatering och publicering av våra Shiny-rapporter och analysrapporter (RMarkdown) samt även hur vi installerar och konfigurerar en Shiny-server. Syftet är att ha ett smidigt, snabbt och säkert flöde där endast kvalitetssäkrade versioner skickas till vår Shiny-server, samt även att ha dokumentation på hur vi installerar och konfigurerar en Shiny-server för att kunna felsöka eller vid behov installera fler servrar.
 
-Webbrapporterna serveras från samma servrar som Shinyapparna men under `/srv/rapporter/` istället för `/srv/shiny-server/`. Själva publiceringsflödet för webbrapporter och dokumentationsportaler beskrivs i den separata dokumentationen **[Publicering](publicering.html)** — den här sidan fokuserar på Shinyappar och på hur själva servern installeras och konfigureras.
+Analysrapporterna serveras från samma servrar som Shinyapparna men under `/srv/rapporter/` istället för `/srv/shiny-server/`. Själva publiceringsflödet för analysrapporter och dokumentationsportaler beskrivs i den separata dokumentationen **[Publicering](publicering.html)** — den här sidan fokuserar på Shinyappar och på hur själva servern installeras och konfigureras.
 
 ## Vem är detta för — och var ska jag börja läsa?
 
@@ -33,15 +33,15 @@ Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-se
 :::
 
 :::{.callout-tip}
-## 📄 Du ska skapa eller revidera en statisk webbrapport (RMarkdown/Quarto)
-Läs om själva publiceringsflödet i den separata dokumentationen **[Publicering](publicering.html)** — där beskrivs hur en webbrapport publiceras från sitt eget repo med `analysrapport_publicera()`.
+## 📄 Du ska skapa eller revidera en analysrapport (RMarkdown)
+Läs om själva publiceringsflödet i den separata dokumentationen **[Publicering](publicering.html)** — där beskrivs hur en analysrapport publiceras från sitt eget repo med `analysrapport_publicera()`.
 
 Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-server*.
 :::
 
 :::{.callout-tip}
 ## 📚 Du ska skapa eller lägga till innehåll i en dokumentationsportal (flera samlade .qmd-sidor)
-Läs om hur du skapar portaler och skriver sidor i den separata dokumentationen **[Publicering](publicering.html)**. En dokumentationsportal skiljer sig från en enskild webbrapport genom att renderingen sker på servern vid varje deploy, och sidor listas automatiskt.
+Läs om hur du skapar portaler och skriver sidor i den separata dokumentationen **[Publicering](publicering.html)**. En dokumentationsportal skiljer sig från en enskild analysrapport genom att renderingen sker på servern vid varje deploy, och sidor listas automatiskt.
 
 Du behöver **inte** läsa avsnittet *Installation och konfigurering av Shiny-server*.
 :::
@@ -156,7 +156,7 @@ När användaren ändrar något i gränssnittet (t.ex. väljer år eller region)
 - Håll det **enkelt och tydligt**
 - Börja gärna statiskt och lägg till interaktivitet stegvis
 
-Shiny passar särskilt bra för **uppföljning, utforskning av data och beslutsstöd**. Våra webbrapporter i RMarkdown/Quarto använder vi primärt för att skapa berättelser. Där är det bra om vi inte lägger in för många diagram och dessa ska främst vara relativt statiska. När vi vill erbjuda kollegor och samarbetsaktörer att kunna vrida och vända på data så är Shinyappar ett bra verktyg.
+Shiny passar särskilt bra för **uppföljning, utforskning av data och beslutsstöd**. Våra analysrapporter i RMarkdown/Quarto använder vi primärt för att skapa berättelser. Där är det bra om vi inte lägger in för många diagram och dessa ska främst vara relativt statiska. När vi vill erbjuda kollegor och samarbetsaktörer att kunna vrida och vända på data så är Shinyappar ett bra verktyg.
 
 Nedan är några rekommenderade resurser för att lära sig det grundläggande om Shiny. Det är klokt att skaffa sig grundläggande kunskaper om Shiny. Då kommer man att kunna skapa och revidera appar än bättre med hjälp av Copilot 365 och andra generativa AI-verktyg.
 
@@ -396,7 +396,7 @@ on:
 
 ## Branch-struktur i våra Shiny-repon
 
-Den generella branch-modellen (arbetsbranch → `publicera-publik`/`publicera-intern` triggar deploy) delas med webbrapporter och beskrivs en gång i [Publicering på webben](publicering.html#publicera-till-publik-eller-intern-server). Det som är specifikt för Shinyappar, och inte gäller webbrapporter, är hur produktionsbranchen faktiskt uppdateras:
+Den generella branch-modellen (arbetsbranch → `publicera-publik`/`publicera-intern` triggar deploy) delas med analysrapporter och beskrivs en gång i [Publicering på webben](publicering.html#publicera-till-publik-eller-intern-server). Det som är specifikt för Shinyappar, och inte gäller analysrapporter, är hur produktionsbranchen faktiskt uppdateras:
 
 * Arbetsbranchen heter hos oss normalt `master` (nya repon fungerar lika bra med `main` — funktionerna läser av vilken default-branch repot faktiskt har).
 * Produktionsbranchen (`publicera-publik`/`publicera-intern`) uppdateras aldrig för hand och aldrig genom en vanlig merge — `rddeploy::shinyapp_publicera()` och `rddeploy::shinyapp_flytta()` **force-pushar** arbetsbranchens aktuella commit dit (se [Flöde för att uppdatera Shinyapp respektive publicera en ny version](#flode-for-att-uppdatera-shinyapp-respektive-publicera-en-ny-version)). Produktionsbranchen blir alltså alltid en exakt kopia av `master`, inte en sammanslagning.
@@ -612,24 +612,24 @@ dataset_df <- DBI::dbGetQuery(con, "SELECT * FROM tillvaxtverket.gastnatter_utla
 DBI::dbDisconnect(con)
 ```
 
-# Webbrapporter och dokumentationsportaler{#webbrapporter}
+# Analysrapporter och dokumentationsportaler{#analysrapporter}
 
-Utöver interaktiva Shinyappar publicerar vi även **statiska webbrapporter** (en enskild renderad HTML-fil från RMarkdown/Quarto) och **dokumentationsportaler** (flera samlade `.qmd`-sidor som renderas på servern, som den portal du läser det här i). Båda serveras från samma servrar som Shinyapparna, men under `/srv/rapporter/` istället för `/srv/shiny-server/`.
+Utöver interaktiva Shinyappar publicerar vi även **analysrapporter** (en enskild renderad HTML-fil från RMarkdown/Quarto) och **dokumentationsportaler** (flera samlade `.qmd`-sidor som renderas på servern, som den portal du läser det här i). Båda serveras från samma servrar som Shinyapparna, men under `/srv/rapporter/` istället för `/srv/shiny-server/`.
 
-Själva publiceringsflödena för dessa — hur man publicerar en webbrapport från dess eget repo, hur man skapar en dokumentationsportal och skriver nya sidor, samt hur man skriver `.qmd`-filer korrekt — beskrivs i den separata dokumentationen **[Publicering](publicering.html)**. Den tekniska infrastrukturen bakom (katalogstruktur under `/srv/rapporter/`, `rapport-deploy`-användaren, nginx-konfiguration, deploy-pipeline, serverskript och runners) beskrivs i sin helhet i samma dokuments förvaltningsavsnitt, under [Statisk rapport- och portal-hosting: serveruppsättning](publicering.html#statisk-hosting) — det avsnittet behövs bara för den som sätter upp eller felsöker själva servern.
+Själva publiceringsflödena för dessa — hur man publicerar en analysrapport från dess eget repo, hur man skapar en dokumentationsportal och skriver nya sidor, samt hur man skriver `.qmd`-filer korrekt — beskrivs i den separata dokumentationen **[Publicering](publicering.html)**. Den tekniska infrastrukturen bakom (katalogstruktur under `/srv/rapporter/`, `rapport-deploy`-användaren, nginx-konfiguration, deploy-pipeline, serverskript och runners) beskrivs i sin helhet i samma dokuments förvaltningsavsnitt, under [Statisk rapport- och portal-hosting: serveruppsättning](publicering.html#statisk-hosting) — det avsnittet behövs bara för den som sätter upp eller felsöker själva servern.
 
 # Installation och konfigurering av Shiny-server{#installation-konfigurering-shinyserver}
 
 :::{.callout-important}
 ## Detta avsnitt är bara för dem som hanterar själva Shiny-servern
 
-Om du *skapar eller reviderar* Shinyappar behöver du **inte** läsa det här avsnittet — gå istället till [Shinyappar](#shinyappar). Ska du publicera en webbrapport eller dokumentationsportal, se den separata **[Publicering](publicering.html)**-dokumentationen.
+Om du *skapar eller reviderar* Shinyappar behöver du **inte** läsa det här avsnittet — gå istället till [Shinyappar](#shinyappar). Ska du publicera en analysrapport eller dokumentationsportal, se den separata **[Publicering](publicering.html)**-dokumentationen.
 
 Resten av detta kapitel är teknisk dokumentation för dig som ska:
 
 * installera en ny Shiny-server från grunden,
 * ändra serverkonfiguration (nginx, portar, rättigheter),
-* lägga upp infrastruktur för statiska webbrapporter, eller
+* lägga upp infrastruktur för analysrapporter, eller
 * felsöka problem på servernivå (åtkomst, deploy som inte går igenom, etc.).
 
 Servern sköter sig själv vid normalt arbete tack vare GitHub Actions och deploy-skripten — du som användare märker den knappt.
@@ -1047,7 +1047,7 @@ I beställningen till IT specificera:
 - **Format**: PEM (cert + privat nyckel + ev. kedje-cert). Om IT levererar `.pfx` eller `.cer` konverteras de enligt instruktionerna i [Certifikathantering (TLS/SSL)](#certifikathantering).
 - **Användning**: nginx framför Shiny Server, intern användning på regionnätet.
 
-### Om du senare vill köra statiska webbrapporter på samma server
+### Om du senare vill köra analysrapporter på samma server
 
 Då kompletteras `location /`-blocket med en `try_files`-fallback enligt avsnittet [Statisk rapport- och portal-hosting](publicering.html#statisk-hosting) i Publicering-dokumentationen, och en andra `server_name` (t.ex. `samhallsanalys-intern.ltdalarna.se`) läggs till. Den uppdelningen är dock inte aktuell på den interna servern i nuläget.
 
@@ -1679,7 +1679,7 @@ echo | openssl s_client -servername shiny.regiondalarna.se -connect shiny.region
 
 ### Ansvar och bevakning
 
-**Samhällsanalys** ansvarar för att hålla Shiny-serverns certifikat ajour. IT förnyar det centrala wildcard-certifikatet för `*.regiondalarna.se` (respektive motsvarande interna cert), men det är vi som lägger in den nya filen på Shiny-servern när det är dags. Detta behöver vanligtvis göras **en gång om året** — sätt en kalenderpåminnelse minst 30 dagar innan `notAfter` så att vi har god marginal. Glömmer vi det blir Shinyappar och webbrapporter otillgängliga via HTTPS tills det är åtgärdat.
+**Samhällsanalys** ansvarar för att hålla Shiny-serverns certifikat ajour. IT förnyar det centrala wildcard-certifikatet för `*.regiondalarna.se` (respektive motsvarande interna cert), men det är vi som lägger in den nya filen på Shiny-servern när det är dags. Detta behöver vanligtvis göras **en gång om året** — sätt en kalenderpåminnelse minst 30 dagar innan `notAfter` så att vi har god marginal. Glömmer vi det blir Shinyappar och analysrapporter otillgängliga via HTTPS tills det är åtgärdat.
 
 ### Byta certifikat
 
@@ -1758,7 +1758,7 @@ systemctl restart nginx
 echo | openssl s_client -servername shiny.regiondalarna.se -connect shiny.regiondalarna.se:443 2>/dev/null | openssl x509 -noout -dates
 ```
 
-`notAfter` ska nu visa det nya utgångsdatumet. Testa även att gå in på en Shinyapp och en webbrapport i en webbläsare och kontrollera att låset i adressfältet ser ok ut och visar det nya utgångsdatumet.
+`notAfter` ska nu visa det nya utgångsdatumet. Testa även att gå in på en Shinyapp och en analysrapport i en webbläsare och kontrollera att låset i adressfältet ser ok ut och visar det nya utgångsdatumet.
 
 :::{.callout-tip}
 ## Privat nyckel byts bara om IT bytt nyckelpar
@@ -1783,5 +1783,5 @@ De två hasharna ska vara identiska. Skiljer de sig — använd inte nyckeln, n�
 * Shiny-koden ligger direkt i repo-roten (ingen `app/`-undermapp), med renv-miljön (`renv.lock`, `.Rprofile`, `renv/`) bredvid. Se [renv-miljö på Shiny-servern](#renv-shinyserver).
 * En app tas bort med `rddeploy::shinyapp_avpublicera("appnamn")` och flyttas till den andra servern med `rddeploy::shinyapp_flytta("appnamn")` (ingen `till`-parameter — riktningen avgörs automatiskt).
 * Rättigheter på app-katalogerna under `/srv/shiny-server/` följer principen *en användare skriver, en grupp läser* — `shiny-deploy:shiny` med läge `2775`/`664`. Deploy-skriptet `/usr/local/bin/shiny_deploy.sh` säkerställer rätt grupp och läge vid varje körning, vilket förutsätter att `shiny-deploy` är medlem i gruppen `shiny`. Se [Rättigheter på app-katalogerna i `/srv/shiny-server/`](#rattigheter-app-kataloger).
-* Statiska webbrapporter (RMarkdown/Quarto) och dokumentationsportaler serveras från `/srv/rapporter/` på samma Shiny-server som Shinyapparna, via en `try_files`-fallback i nginx. Både publiceringsflödena och serveruppsättningen (katalogstruktur, `rapport-deploy`-användaren, nginx, runners) beskrivs i den separata **[Publicering](publicering.html)**-dokumentationen, under [Statisk rapport- och portal-hosting: serveruppsättning](publicering.html#statisk-hosting).
+* Analysrapporter (RMarkdown) och dokumentationsportaler serveras från `/srv/rapporter/` på samma Shiny-server som Shinyapparna, via en `try_files`-fallback i nginx. Både publiceringsflödena och serveruppsättningen (katalogstruktur, `rapport-deploy`-användaren, nginx, runners) beskrivs i den separata **[Publicering](publicering.html)**-dokumentationen, under [Statisk rapport- och portal-hosting: serveruppsättning](publicering.html#statisk-hosting).
 * **TLS-certifikatet** för Shiny-servern hanteras manuellt och Samhällsanalys ansvarar för att hålla det ajour. Det är ett wildcard-cert som IT förnyar centralt ca en gång per år; vi byter ut `fullchain.pem` på servern och startar om nginx. Sätt en kalenderpåminnelse minst 30 dagar innan `notAfter`. Se [Certifikathantering (TLS/SSL)](#certifikathantering).

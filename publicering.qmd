@@ -1,7 +1,7 @@
 ---
 title: "Publicering på webben"
-subtitle: "Hur vi publicerar rapporter, webbsidor med portal och Shinyappar till våra servrar — samt hur landningssidorna fungerar"
-listing-description: "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: statiska webbrapporter, dokumentationsportaler och Shinyappar. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man i Adminportalen styr synlighet, ikoner och beskrivningstexter."
+subtitle: "Hur vi publicerar interaktiva rapporter (Shiny), analysrapporter (RMarkdown) och pdf-rapporter till våra servrar — samt hur landningssidorna fungerar"
+listing-description: "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: interaktiva rapporter (Shinyappar), analysrapporter (RMarkdown), publicerade pdf-rapporter och dokumentationsportaler. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man i Adminportalen styr synlighet, ikoner och beskrivningstexter."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -19,13 +19,18 @@ format:
 
 Den här sidan beskriver hur vi publicerar innehåll till våra två servrar — den publika (`shiny.regiondalarna.se`) och den interna (`samhallsanalys.ltdalarna.se`). Inom kort kommer de publika Shinyrapporterna att nås via `samhallsanalys.regiondalarna.se`. Tanken är att besökaren hittar till rapporterna direkt via deras appspecifika url:er men om man går in på servrarnas url:er utan app-adress så kommer besökaren till våra landningssidor som automatiskt listar allt som är publicerat.
 
-Vi publicerar tre olika sorters innehåll, och de har delvis olika flöden:
+Vi publicerar fyra sorters innehåll. De tre första är rapporterna som visas på landningssidorna, var och en under sin egen rubrik, och de har delvis olika flöden:
 
-- **Statiska webbrapporter** — en renderad `.qmd`/`.Rmd` (oftast en enda självbärande HTML-fil) som publiceras från sitt eget repo. Tidigare använde vi publicerings-repository för dessa rapporter men det behövs inte längre. Det är våra Rmarkdownrapporter som t.ex. Läget i Dalarna, Befolkningsutvecklingen i Dalarna. m.fl. 
-- **Shinyappar** — interaktiva R-appar som körs av Shiny Server. Hit hör t.ex. Brotts-rapporten, Exportrapporten, BRP+ - experimentyta m.fl.
-- **Dokumentationsportaler** — flera samlade `.qmd`-sidor som renderas på servern vid varje deploy (den här sidan är själv en sådan). I dagsläget använder vi det för intern dokumentation, och den portalen finns på `samhallsanalys.ltdalarna.se/dokumentation`.
+| Rubrik på landningssidan | Vad det är | Verktyg och format | Publiceras med |
+|---|---|---|---|
+| **Interaktiva rapporter** | Shinyappar där användaren själv väljer region, tidsperiod m.m. Hit hör t.ex. Befolkningen i Dalarna, Brotts-rapporten och BRP+ – experimentyta. | Shiny (R), körs av Shiny Server | `rddeploy::shinyapp_publicera()` |
+| **Analysrapporter** | Rapporter med analys och slutsatser som uppdateras regelbundet, t.ex. Det samhällsekonomiska läget i Dalarna och Befolkningsutvecklingen i Dalarna. | RMarkdown (`.Rmd`), renderad till en självbärande HTML-fil | `rddeploy::analysrapport_publicera()` |
+| **Publicerade rapporter (pdf)** | Färdiga rapporter som pdf-fil. | Valfritt verktyg som kan skriva pdf (Word, Quarto m.fl.) | push av pdf-filen till repot `pdf-rapporter` |
+| *(ingen rubrik)* | **Dokumentationsportaler** — flera samlade `.qmd`-sidor som renderas på servern vid varje deploy (den här sidan är själv en sådan). I dagsläget används de för intern dokumentation, och portalen finns på `samhallsanalys.ltdalarna.se/dokumentation`. | Quarto | `rddeploy::webbsida_med_portal_skapa_med_github_repo()` och push |
 
-Gemensamt för alla tre är att de blir åtkomliga direkt under serverns grund-URL, utan mellanled i adressen: `samhallsanalys.regiondalarna.se/<namn>/` för de publika apparna/rapporterna och `samhallsanalys.ltdalarna.se/<namn>/` för de interna. Gemensamt är också att publiceringen sker via GitHub Actions och self-hosted runners — du behöver normalt aldrig logga in på servern i det vardagliga arbetet.
+Analysrapporterna publicerades tidigare via ett gemensamt publicerings-repository (`publicera_rapporter`), men det behövs inte längre: varje rapport publiceras från sitt eget repo.
+
+Analysrapporter, Shinyappar och dokumentationsportaler blir åtkomliga direkt under serverns grund-URL, utan mellanled i adressen: `samhallsanalys.regiondalarna.se/<namn>/` för de publika och `samhallsanalys.ltdalarna.se/<namn>/` för de interna. pdf-filerna nås under `/pdf-rapporter/<filnamn>`. Gemensamt är också att publiceringen sker via GitHub Actions och self-hosted runners — du behöver normalt aldrig logga in på servern i det vardagliga arbetet.
 
 ## Vem är detta för — och var ska jag börja läsa?
 
@@ -33,7 +38,7 @@ Det här dokumentet är skrivet för två olika roller. Du behöver normalt bara
 
 :::{.callout-tip}
 ## 🧑‍💻 Du ska publicera eller avpublicera innehåll
-Läs avsnittet **[Publicera innehåll](#publicera-innehall)**. Det täcker de tre innehållstyperna och R-funktionerna du använder. Du behöver **inte** läsa förvaltningsavsnittet.
+Läs avsnittet **[Publicera innehåll](#publicera-innehall)**. Det täcker de olika innehållstyperna och R-funktionerna du använder. Du behöver **inte** läsa förvaltningsavsnittet.
 :::
 
 :::{.callout-tip}
@@ -53,30 +58,35 @@ Det här avsnittet är för dig som ska publicera eller ta bort innehåll. Allt 
 ## Välj rätt innehållstyp
 
 :::{.callout-tip}
-## 📄 En enskild rapport (RMarkdown/Quarto)
-En självständig rapport som renderas lokalt hos dig och publiceras som en färdig HTML-fil. Använd flödet i [Webbrapporter](#webbrapporter). Det här är alltså de webbrapporter vi har publicerat och länkar till från vår webbsida https://www.regiondalarna.se/verksamhet/regional-utveckling/statistik-och-rapporter/, såsom Kvinnor och män i Dalarna, Läget i Dalarna, RUS-uppföljningen Hur går det i Dalarna m.fl.
+## 📊 En interaktiv rapport (Shinyapp)
+En interaktiv app där användaren själv väljer region och tidsperiod. Se den separata Shiny-dokumentationen för det fullständiga flödet — publiceringen sammanfattas kort i [Interaktiva rapporter](#shinyappar) nedan.
 :::
 
 :::{.callout-tip}
-## 🧑‍💻 En Shinyapp
-En interaktiv app. Se den separata Shiny-dokumentationen för det fullständiga flödet — publiceringen sammanfattas kort i [Shinyappar](#shinyappar) nedan.
+## 📄 En analysrapport (RMarkdown)
+En självständig rapport som renderas lokalt hos dig och publiceras som en färdig HTML-fil. Använd flödet i [Analysrapporter](#analysrapporter). Det här är alltså de rapporter vi har publicerat och länkar till från vår webbsida https://www.regiondalarna.se/verksamhet/regional-utveckling/statistik-och-rapporter/, såsom Kvinnor och män i Dalarna, Läget i Dalarna, RUS-uppföljningen Hur går det i Dalarna m.fl.
+:::
+
+:::{.callout-tip}
+## 📑 En publicerad rapport (pdf)
+En färdig pdf-fil, till exempel en rapport som skrivits i Word. Se [Publicerade rapporter (pdf)](#pdf-rapporter).
 :::
 
 :::{.callout-tip}
 ## 📚 En dokumentationsportal (flera samlade sidor)
-Flera `.qmd`-sidor som hör ihop och renderas *på servern* vid varje deploy. Skiljer sig från en enskild webbrapport genom att renderingen sker server-side. Använd flödet i [Dokumentationsportaler](#dokumentationsportaler).
+Flera `.qmd`-sidor som hör ihop och renderas *på servern* vid varje deploy. Skiljer sig från en enskild analysrapport genom att renderingen sker server-side. Använd flödet i [Dokumentationsportaler](#dokumentationsportaler).
 :::
 
 ## Publicera till publik eller intern server{#publicera-till-publik-eller-intern-server}
 
-**Webbrapporter** och **Shinyappar** använder samma grundprincip för att välja server: en **branch-modell** där `main`/`master` är din arbetsbranch, och en push till `publicera-publik` respektive `publicera-intern` triggar deploy till rätt server. Vilken self-hosted runner som plockar upp jobbet avgörs automatiskt av branchnamnet.
+**Analysrapporter** och **Shinyappar** använder samma grundprincip för att välja server: en **branch-modell** där `main`/`master` är din arbetsbranch, och en push till `publicera-publik` respektive `publicera-intern` triggar deploy till rätt server. Vilken self-hosted runner som plockar upp jobbet avgörs automatiskt av branchnamnet.
 
 | Server | Domän | Deploy-branch | Runner-etikett |
 |---|---|---|---|
 | Publik | `samhallsanalys.regiondalarna.se` | `publicera-publik` | `rapport` / `shiny-deploy-publik` |
 | Intern | `samhallsanalys.ltdalarna.se` | `publicera-intern` | `rapport-intern` / `shiny-deploy-intern` |
 
-För webbrapporter och Shinyappar behöver du inte hantera brancharna manuellt — R-funktionerna sköter det åt dig via en `target`-parameter (`"publik"` eller `"intern"`).
+För analysrapporter och Shinyappar behöver du inte hantera brancharna manuellt — R-funktionerna sköter det åt dig via en `target`-parameter (`"publik"` eller `"intern"`).
 
 :::{.callout-important}
 ## ⚠️ Dokumentationsportaler är ett undantag: ingen branch-modell, ingen publicera-funktion
@@ -85,13 +95,13 @@ För webbrapporter och Shinyappar behöver du inte hantera brancharna manuellt �
 Det betyder i praktiken: **så fort du pushar en ändring till `main` i ett portal-repo deployas den, automatiskt, utan något extra steg.** Det finns ingen `shinyapp_publicera()`/`analysrapport_publicera()`-motsvarighet för portaler att köra, och det ska det inte heller finnas — det finns inget separat publiceringssteg att trigga. En vanlig `git push`/`rddeploy::github_commit_push("dokumentation")` till `main` *är* publiceringen. Se [Dokumentationsportaler](#dokumentationsportaler) nedan.
 :::
 
-## Webbrapporter{#webbrapporter}
+## Analysrapporter{#analysrapporter}
 
-En webbrapport är en enskild renderad HTML-fil som publiceras från sitt **eget** repo (till skillnad från det tidigare upplägget där alla rapporter samlades i ett gemensamt repo). Repot måste innehålla en HTML-fil som heter samma som repot, t.ex. `laget_i_dalarna.html` i repot `laget_i_dalarna`.
+En analysrapport är en enskild renderad HTML-fil som publiceras från sitt **eget** repo (till skillnad från det tidigare upplägget där alla rapporter samlades i ett gemensamt repo). Repot måste innehålla en HTML-fil som heter samma som repot, t.ex. `laget_i_dalarna.html` i repot `laget_i_dalarna`.
 
 ### Migrering från RMarkdown och publicera_rapporter{#migrering-fran-rmarkdown}
 
-Innan den nuvarande modellen (en webbrapport = ett eget repo, publicerat direkt till våra egna servrar) användes ett äldre upplägg, byggt kring RMarkdown och ett gemensamt repo som heter **`publicera_rapporter`**. Känner du inte igen namnet är det inget att oroa sig för — det är historik, inte något att använda för nya rapporter.
+Innan den nuvarande modellen (en analysrapport = ett eget repo, publicerat direkt till våra egna servrar) användes ett äldre upplägg, byggt kring RMarkdown och ett gemensamt repo som heter **`publicera_rapporter`**. Känner du inte igen namnet är det inget att oroa sig för — det är historik, inte något att använda för nya rapporter.
 
 I det äldre upplägget hade varje rapport fyra numrerade skript i sitt eget repo:
 
@@ -105,13 +115,13 @@ I det äldre upplägget hade varje rapport fyra numrerade skript i sitt eget rep
 Eftersom publiceringen gick via en **separat kopiering** (steg 3 ovan) kan rapportens eget repo innehålla en **utvecklingsversion** — en kommande uppdatering som ännu inte kopierats vidare — samtidigt som en annan, äldre version ligger publicerad i `publicera_rapporter`. Stöter du på en rapport som fortfarande använder det här upplägget: anta aldrig att filen i rapportens eget repo är det som faktiskt visas på webben. Det som faktiskt är publicerat är filen i `publicera_rapporter/docs/`, inte den som (eventuellt) ligger och väntar i rapportens eget repo.
 :::
 
-Upplägget fasas successivt ut i takt med att rapporter migreras till den nuvarande modellen, där `analysrapport_publicera()` (se [TL;DR](#webbrapporter) nedan) publicerar direkt från rapportens eget repo till våra egna servrar — utan mellansteg, utan separat kopiering och utan `publicera_rapporter`. Så snart en rapport migrerats finns bara en version att hålla reda på: den som ligger i rapportens eget repo. Under övergångsperioden kan båda modellerna existera parallellt.
+Upplägget fasas successivt ut i takt med att rapporter migreras till den nuvarande modellen, där `analysrapport_publicera()` (se [TL;DR](#analysrapporter) nedan) publicerar direkt från rapportens eget repo till våra egna servrar — utan mellansteg, utan separat kopiering och utan `publicera_rapporter`. Så snart en rapport migrerats finns bara en version att hålla reda på: den som ligger i rapportens eget repo. Under övergångsperioden kan båda modellerna existera parallellt.
 
 Framöver planerar vi att, även i den nuvarande modellen, separera produktion och pågående arbete tydligare med en egen utvecklingsbranch för nästa version av en rapport — se [Produktion och nästa version](#produktion-och-nasta-version) nedan.
 
 :::{.callout-note}
 ## Förutsättning: HTML-filen måste vara renderad
-`analysrapport_publicera()` renderar **inte** åt dig — den utgår från den HTML-fil som ligger i repot. Rendera din `.qmd`/`.Rmd` innan du publicerar (se [Uppdatera en webbrapport](#uppdatera-webbrapport)); själva committen av den nya HTML-filen sköter funktionen åt dig. Funktionen varnar (men stoppar inte) om HTML-filen är äldre än källfilen, som en påminnelse ifall du glömt rendera om.
+`analysrapport_publicera()` renderar **inte** åt dig — den utgår från den HTML-fil som ligger i repot. Rendera din `.qmd`/`.Rmd` innan du publicerar (se [Uppdatera en analysrapport](#uppdatera-analysrapport)); själva committen av den nya HTML-filen sköter funktionen åt dig. Funktionen varnar (men stoppar inte) om HTML-filen är äldre än källfilen, som en påminnelse ifall du glömt rendera om.
 :::
 
 ### TL;DR
@@ -149,9 +159,9 @@ Om exakt samma version redan ligger på target-servern gör funktionen ingenting
 Våra repon använder ibland `main` och ibland `master` som arbetsbranch (äldre repon tenderar att ha `master`, nyare `main`). `analysrapport_publicera()` och `analysrapport_avpublicera()` hanterar båda automatiskt: om den branch funktionen förväntar sig inte finns, provar den den andra av `main`/`master` och skriver ut ett meddelande om vilken den använde istället. Du behöver alltså normalt inte tänka på vilken av dem just ditt repo använder. (Har repot något helt annat branchnamn stoppar funktionen med ett tydligt fel istället för att gissa vidare.)
 :::
 
-### Uppdatera en webbrapport{#uppdatera-webbrapport}
+### Uppdatera en analysrapport{#uppdatera-analysrapport}
 
-En webbrapport uppdateras i tre steg, och de två första har var sitt numrerat skript i rapportens repo: först hämtas data, sedan renderas rapporten och till sist publiceras den. Steg 1 och 2 ser likadana ut oavsett om rapporten migrerats till den nuvarande modellen eller fortfarande använder det äldre upplägget med `publicera_rapporter` — det är bara publiceringen (steg 3) som skiljer sig.
+En analysrapport uppdateras i tre steg, och de två första har var sitt numrerat skript i rapportens repo: först hämtas data, sedan renderas rapporten och till sist publiceras den. Steg 1 och 2 ser likadana ut oavsett om rapporten migrerats till den nuvarande modellen eller fortfarande använder det äldre upplägget med `publicera_rapporter` — det är bara publiceringen (steg 3) som skiljer sig.
 
 #### Steg 1: Hämta data – `1_hamta_data.R`{#steg-1-hamta-data}
 
@@ -234,7 +244,7 @@ Funktionen gör följande:
 :::{.callout-warning}
 ## Två saker att se upp med
 - **Den senast ändrade `.Rmd`-filen väljs.** Om det finns flera `.Rmd`-filer i repots rot, t.ex. en kopia eller en testversion, renderas den som sparades senast. Det är inte nödvändigtvis själva rapporten. Kontrollera i konsolen vilken fil som renderades.
-- **HTML-filen får samma namn som `.Rmd`-filen.** `analysrapport_publicera()` kräver att HTML-filen heter samma som repot (se [Webbrapporter](#webbrapporter)). `.Rmd`-filen måste därför också heta som repot, t.ex. `uppfoljning_strategier_planer.Rmd` i repot `uppfoljning_strategier_planer`.
+- **HTML-filen får samma namn som `.Rmd`-filen.** `analysrapport_publicera()` kräver att HTML-filen heter samma som repot (se [Analysrapporter](#analysrapporter)). `.Rmd`-filen måste därför också heta som repot, t.ex. `uppfoljning_strategier_planer.Rmd` i repot `uppfoljning_strategier_planer`.
 :::
 
 #### Steg 3: Publicera{#steg-3-publicera}
@@ -299,9 +309,18 @@ rddeploy::analysrapport_publicera("laget_i_dalarna", target = "publik")
 Så länge en rapport sällan uppdateras gör det ingen skillnad. Fördelen syns när en större uppdatering tar tid (dagar eller veckor) och du samtidigt behöver kunna rätta ett mindre fel i det som redan är publicerat, utan att av misstag publicera en halvfärdig version av den större uppdateringen tillsammans med rättningen.
 :::
 
-## Shinyappar{#shinyappar}
+## Publicerade rapporter (pdf){#pdf-rapporter}
 
-Shinyappar har sitt eget, mer omfattande flöde — skapande, branch-struktur, renv, mapp-rättigheter m.m. — som beskrivs i sin helhet i den separata **[Shiny-dokumentationen](shiny.html)**. Här är bara TL;DR för själva publiceringskommandona:
+Pdf-rapporter publiceras från det gemensamma repot **`pdf-rapporter`**, utan R-funktioner:
+
+1. Lägg pdf-filen i repots mapp `pdf/` (eller ta bort eller byt filen).
+2. Committa och pusha till `main`. Det publicerar direkt på den **publika** servern; det finns ingen separat `publicera-*`-gren här. Förloppet syns under *Actions* på GitHub.
+
+Varje pdf-fil blir ett kort under rubriken **Publicerade rapporter** på landningssidan. Titeln hämtas ur pdf-filens egenskaper (titeln du sätter när du exporterar), annars ur filnamnet, och kortet visar månad och år om filnamnet börjar med `ÅÅÅÅ-MM` eller om pdf-filens egenskap *Ämne* innehåller ett datum. Mer om titel, datum, omslagsbild och ikon finns i README för repona [`pdf-rapporter`](https://github.com/Region-Dalarna/pdf-rapporter) och [`landningssida`](https://github.com/Region-Dalarna/landningssida). Filnamnet blir webbadressen (`/pdf-rapporter/<filnamn>`), så välj ett stabilt namn om länken ska leva kvar när rapporten uppdateras.
+
+## Interaktiva rapporter (Shinyappar){#shinyappar}
+
+En interaktiv rapport är en Shinyapp, och den har sitt eget, mer omfattande flöde — skapande, branch-struktur, renv, mapp-rättigheter m.m. — som beskrivs i sin helhet i den separata **[Shiny-dokumentationen](shiny.html)**. Här är bara TL;DR för själva publiceringskommandona:
 
 ```r
 # Skapa
@@ -314,7 +333,7 @@ rddeploy::shinyapp_publicera("appnamn", target = "publik")
 rddeploy::shinyapp_avpublicera("appnamn", target = "publik")
 ```
 
-Precis som webbrapporterna triggar publiceringen en deploy via GitHub Actions, som deployar appen till `/srv/shiny-server/<appnamn>/` och regenererar landningssidan.
+Precis som analysrapporterna triggar publiceringen en deploy via GitHub Actions, som deployar appen till `/srv/shiny-server/<appnamn>/` och regenererar landningssidan.
 
 ## Dokumentationsportaler{#dokumentationsportaler}
 
@@ -326,12 +345,12 @@ rddeploy::webbsida_med_portal_skapa_med_github_repo("dokumentation", server = "i
 
 :::{.callout-important}
 ## Det här är flödet för att skriva dokumentation
-Just den dokumentation du läser nu ligger i portal-repot **`dokumentation`**, skapat med `rddeploy::webbsida_med_portal_skapa_med_github_repo()`. Det är det avsedda sättet att publicera intern dokumentation hos oss: varje ämnesområde blir en egen `.qmd`-sida i det repot, och de listas automatiskt på portalens startsida. Vill du lägga till eller uppdatera dokumentation är det alltså hit du går — inte till webbrapport- eller Shiny-flödet.
+Just den dokumentation du läser nu ligger i portal-repot **`dokumentation`**, skapat med `rddeploy::webbsida_med_portal_skapa_med_github_repo()`. Det är det avsedda sättet att publicera intern dokumentation hos oss: varje ämnesområde blir en egen `.qmd`-sida i det repot, och de listas automatiskt på portalens startsida. Vill du lägga till eller uppdatera dokumentation är det alltså hit du går — inte till analysrapport- eller Shiny-flödet.
 :::
 
 ### Vad ska med, och var hamnar det?
 
-Till skillnad från en enskild webbrapport committar du ingen färdig HTML — du committar dina `.qmd`-**källor**, och en push till `main` får servern att köra `quarto render` och publicera resultatet, automatiskt och utan separat publiceringssteg (se undantaget ovan).
+Till skillnad från en enskild analysrapport committar du ingen färdig HTML — du committar dina `.qmd`-**källor**, och en push till `main` får servern att köra `quarto render` och publicera resultatet, automatiskt och utan separat publiceringssteg (se undantaget ovan).
 
 | Vad | Var det ligger i repot | Vad som händer med det |
 |---|---|---|
@@ -364,7 +383,7 @@ Använd `rddeploy::dokumentation_sida_skapa()` — det är den avsedda metoden f
 rddeploy::dokumentation_sida_skapa(
   titel       = "Publicering",
   undertitel  = "Hur vi publicerar rapporter, webbsidor med portal och Shinyappar till våra servrar — samt hur landningssidorna fungerar",
-  beskrivning = "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: statiska webbrapporter, dokumentationsportaler och Shinyappar. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man styr exkluderingar och ikoner.",
+  beskrivning = "Samlad dokumentation för hur Samhällsanalys publicerar innehåll till de publika och interna servrarna: analysrapporter, dokumentationsportaler och Shinyappar. Beskriver publiceringsflödena, hur man tar bort publicerat innehåll, och hur landningssidorna som listar allt genereras automatiskt — inklusive hur man styr exkluderingar och ikoner.",
   filnamn     = "publicering"
 )
 ```
@@ -484,7 +503,7 @@ Det här avsnittet är teknisk dokumentation för hur landningssidorna faktiskt 
 
 ## Hur landningssidan genereras
 
-Landningssidan byggs av `generera_landningssida()`, en funktion som versionshanteras i det egna repot **`landningssida`** (`gemensamt/generera_landningssida.R`) och installeras på respektive server av repots egen `server/landningssida_installera.sh` vid varje deploy till `publicera-publik`/`publicera-intern` — precis samma branch-modell som Shinyappar och webbrapporter. Publicera ändringar i genereringslogiken med:
+Landningssidan byggs av `generera_landningssida()`, en funktion som versionshanteras i det egna repot **`landningssida`** (`gemensamt/generera_landningssida.R`) och installeras på respektive server av repots egen `server/landningssida_installera.sh` vid varje deploy till `publicera-publik`/`publicera-intern` — precis samma branch-modell som Shinyappar och analysrapporter. Publicera ändringar i genereringslogiken med:
 
 ```r
 rddeploy::landningssida_publicera()   # publicerar till båda servrarna i ett anrop
@@ -687,7 +706,7 @@ Detta neutraliserar klick/hover på elementet utan att ta bort själva loggan, o
 
 ### Deploy-pipeline
 
-**Man behöver aldrig rendera en `.qmd`-fil lokalt för att publicera den.** Hela poängen med portal-arkitekturen (till skillnad från webbrapporter, se jämförelsen ovan) är att `quarto render` körs **av GitHub Actions-runnern på servern**, som en del av varje deploy — inte av författaren innan push. Man skriver `.qmd`-filen, sparar, och pushar källfilen; servern sköter renderingen och publiceringen automatiskt.
+**Man behöver aldrig rendera en `.qmd`-fil lokalt för att publicera den.** Hela poängen med portal-arkitekturen (till skillnad från analysrapporter, se jämförelsen ovan) är att `quarto render` körs **av GitHub Actions-runnern på servern**, som en del av varje deploy — inte av författaren innan push. Man skriver `.qmd`-filen, sparar, och pushar källfilen; servern sköter renderingen och publiceringen automatiskt.
 
 Det är också anledningen till att `.gitignore` i varje portal-repo (satt av `webbsida_med_portal_skapa_med_github_repo()`) uttryckligen exkluderar renderade filer:
 
@@ -718,7 +737,7 @@ Systemberoenden (Java, `libgdal-dev`, `libpq-dev` med flera) måste fortfarande 
 
 #### Serverskriptet `rapport_deploy_repo.sh`{#serverskriptet-rapport-deploy-repo-sh}
 
-Både webbrapporter och dokumentationsportaler deployas via samma serverskript, `/usr/local/bin/rapport_deploy_repo.sh <SOURCE_DIR> <REPO_NAMN>` (finns på båda servrarna). Det är avsett för självständiga repon som deployar sig själva oberoende av varandra — till skillnad från ett äldre, nu utfasat upplägg där alla rapporter samlades i ett gemensamt repo och deployades som ett samlat träd.
+Både analysrapporter och dokumentationsportaler deployas via samma serverskript, `/usr/local/bin/rapport_deploy_repo.sh <SOURCE_DIR> <REPO_NAMN>` (finns på båda servrarna). Det är avsett för självständiga repon som deployar sig själva oberoende av varandra — till skillnad från ett äldre, nu utfasat upplägg där alla rapporter samlades i ett gemensamt repo och deployades som ett samlat träd.
 
 Skriptet begränsar `--delete` till repots **egen** undermapp, aldrig hela `/srv/rapporter/`:
 
@@ -727,13 +746,13 @@ rapport_deploy_repo.sh <SOURCE_DIR> <REPO_NAMN>
 # rsync -a --delete <SOURCE_DIR>/ /srv/rapporter/<REPO_NAMN>/
 ```
 
-Det är en viktig säkerhetsdetalj: eftersom varje repo bara skickar med sin egen renderade mapp som `SOURCE_DIR` (portaler: Quartos `_site/`; webbrapporter: en `_publish/`-mapp med den omdöpta `index.html`), skulle en `rsync --delete` mot hela `/srv/rapporter/` ha raderat alla *andra* rapporter — de saknas ju i den enskilda deployens `SOURCE_DIR`. Genom att scope:a rsync till `/srv/rapporter/<REPO_NAMN>/` påverkas bara den rapport/portal som faktiskt deployas.
+Det är en viktig säkerhetsdetalj: eftersom varje repo bara skickar med sin egen renderade mapp som `SOURCE_DIR` (portaler: Quartos `_site/`; analysrapporter: en `_publish/`-mapp med den omdöpta `index.html`), skulle en `rsync --delete` mot hela `/srv/rapporter/` ha raderat alla *andra* rapporter — de saknas ju i den enskilda deployens `SOURCE_DIR`. Genom att scope:a rsync till `/srv/rapporter/<REPO_NAMN>/` påverkas bara den rapport/portal som faktiskt deployas.
 
 Skriptet har också ett kollisionsskydd: en portal/rapport får inte heta samma som en befintlig Shiny-app-katalog i `/srv/shiny-server/`, eftersom nginx `try_files` prioriterar `/srv/rapporter/` före Shiny-proxyn (annars hade en namnkrock gjort Shiny-appen oåtkomlig).
 
-##### Webbrapporternas deploy.yml
+##### Analysrapporternas deploy.yml
 
-För webbrapporter (som publiceras från sitt eget repo, se [Webbrapporter](#webbrapporter)) sköter repots egen `.github/workflows/deploy.yml` att:
+För analysrapporter (som publiceras från sitt eget repo, se [Analysrapporter](#analysrapporter)) sköter repots egen `.github/workflows/deploy.yml` att:
 
 1. Trigga på push till `publicera-publik`/`publicera-intern` och välja rätt runner-label (`rapport` respektive `rapport-intern`).
 2. Leta upp HTML-filen som heter samma som repot (skiftlägesokänsligt, eftersom repo-namnets case på GitHub kan skilja sig från filnamnets).
@@ -745,7 +764,7 @@ Målmappens namn tvingas till gemener, så en rapport i repot `Laget_i_Dalarna` 
 
 ### Statisk rapport- och portal-hosting: serveruppsättning{#statisk-hosting}
 
-Webbrapporter och dokumentationsportaler serveras från samma Shiny-server som Shinyapparna, men under en separat domän (`samhallsanalys.regiondalarna.se`) och ett eget filträd (`/srv/rapporter/`). Apparna och rapporterna lever sida vid sida tack vare en `try_files`-fallback i nginx: rapporter under `/srv/rapporter/` har företräde, och allt som inte matchar en rapport faller igenom till `/srv/shiny-server/` som vanligt.
+Analysrapporter och dokumentationsportaler serveras från samma Shiny-server som Shinyapparna, men under en separat domän (`samhallsanalys.regiondalarna.se`) och ett eget filträd (`/srv/rapporter/`). Apparna och rapporterna lever sida vid sida tack vare en `try_files`-fallback i nginx: rapporter under `/srv/rapporter/` har företräde, och allt som inte matchar en rapport faller igenom till `/srv/shiny-server/` som vanligt.
 
 Det här avsnittet beskriver hur den infrastrukturen sätts upp, en gång per server. Är allting redan på plats (normalfallet) behövs inget av detta — publiceringsflödena ovan räcker. Avsnittet behövs bara för att sätta upp en ny server eller felsöka själva serveruppsättningen.
 
@@ -792,7 +811,7 @@ server {
     server_name shiny.regiondalarna.se samhallsanalys.regiondalarna.se;
     # ... ssl-konfig, listen-direktiv m.m. ...
 
-    # Statiska webbrapporter har företräde
+    # Analysrapporter har företräde
     location / {
         root /srv/rapporter;
         try_files $uri $uri/ @shiny;
@@ -851,7 +870,7 @@ GitHub Actions-deployen kör som användaren `rapport-deploy` via en egen self-h
 | Publik (wfalmitvs978) | `shiny-deploy-publik` | `rapport` |
 | Intern (RP0003) | `shiny-deploy-intern` | `rapport-intern` |
 
-Internservern hade ursprungligen bara en enda runner (`shiny-deploy`, för Shinyappar). En ny runner sattes upp specifikt för rapport/portal-deploys, körandes som **`rapport-deploy`** — samma separation av ansvar som redan fanns på publika servern, snarare än att låta `shiny-deploy` få rättigheter till `/srv/rapporter/` via sudoers (vilket hade suddat ut gränsen mellan app- och rapportdeploy). Varje webbrapport- och portal-repo har en `deploy.yml` med `runs-on: [ self-hosted, rapport ]` (eller `rapport-intern`) och plockas alltså bara upp av rätt rapport-runner.
+Internservern hade ursprungligen bara en enda runner (`shiny-deploy`, för Shinyappar). En ny runner sattes upp specifikt för rapport/portal-deploys, körandes som **`rapport-deploy`** — samma separation av ansvar som redan fanns på publika servern, snarare än att låta `shiny-deploy` få rättigheter till `/srv/rapporter/` via sudoers (vilket hade suddat ut gränsen mellan app- och rapportdeploy). Varje analysrapport- och portal-repo har en `deploy.yml` med `runs-on: [ self-hosted, rapport ]` (eller `rapport-intern`) och plockas alltså bara upp av rätt rapport-runner.
 
 Som `rapport-deploy`, på vardera servern (byt ut `<label>` mot `rapport` respektive `rapport-intern`):
 
@@ -889,9 +908,9 @@ sudo dpkg -i quarto-1.7.32-linux-amd64.deb
 sudo apt install -y git
 ```
 
-#### Webbrapport- och portal-repon deployar sig själva
+#### Analysrapport- och portal-repon deployar sig själva
 
-Till skillnad från ett äldre upplägg (där alla rapporter samlades i ett gemensamt repo, se [Migrering från RMarkdown och publicera_rapporter](#migrering-fran-rmarkdown)) publicerar sig varje webbrapport och dokumentationsportal **från sitt eget repo**. Det finns alltså inget centralt publiceringsregister att sätta upp på servern — varje repo har sin egen `deploy.yml` som pushas till en `publicera-publik`/`publicera-intern`-branch (webbrapporter) eller `main` (portaler), vilket triggar rapport-runnern som kör `rapport_deploy_repo.sh` och lägger resultatet i sin egen mapp under `/srv/rapporter/<reponamn>/`.
+Till skillnad från ett äldre upplägg (där alla rapporter samlades i ett gemensamt repo, se [Migrering från RMarkdown och publicera_rapporter](#migrering-fran-rmarkdown)) publicerar sig varje analysrapport och dokumentationsportal **från sitt eget repo**. Det finns alltså inget centralt publiceringsregister att sätta upp på servern — varje repo har sin egen `deploy.yml` som pushas till en `publicera-publik`/`publicera-intern`-branch (analysrapporter) eller `main` (portaler), vilket triggar rapport-runnern som kör `rapport_deploy_repo.sh` och lägger resultatet i sin egen mapp under `/srv/rapporter/<reponamn>/`.
 
 #### DNS för samhallsanalys.regiondalarna.se
 
@@ -899,12 +918,13 @@ För att rapporterna ska vara åtkomliga på `https://samhallsanalys.regiondalar
 
 # Sammanfattning
 
-- Vi publicerar tre innehållstyper — **webbrapporter**, **dokumentationsportaler** och **Shinyappar** — alla åtkomliga direkt under serverns grund-URL utan mellanled i adressen.
+- Vi publicerar fyra innehållstyper: **interaktiva rapporter** (Shinyappar), **analysrapporter** (RMarkdown), **publicerade rapporter** (pdf) och **dokumentationsportaler**. De tre första visas under var sin rubrik på landningssidan; analysrapporter, Shinyappar och portaler nås direkt under serverns grund-URL utan mellanled i adressen.
 - Publiceringen styrs av en **branch-modell**: en push till `publicera-publik` eller `publicera-intern` triggar deploy till rätt server via GitHub Actions och self-hosted runners.
-- **Webbrapporter** publiceras nu från sitt eget repo med `analysrapport_publicera("namn", target = ...)` och tas bort med `analysrapport_avpublicera("namn", target = ...)`. HTML-filen måste heta samma som repot och vara renderad innan publicering.
-- En **webbrapport uppdateras** i tre steg: `1_hamta_data.R` hämtar data och sparar diagram och textvariabler i en environment, `2_knitta_rapport.R` renderar rapporten med `knitta_webbrapport()` (inte med Knit-knappen), och `analysrapport_publicera()` publicerar den.
+- **Analysrapporter** publiceras nu från sitt eget repo med `analysrapport_publicera("namn", target = ...)` och tas bort med `analysrapport_avpublicera("namn", target = ...)`. HTML-filen måste heta samma som repot och vara renderad innan publicering.
+- En **analysrapport uppdateras** i tre steg: `1_hamta_data.R` hämtar data och sparar diagram och textvariabler i en environment, `2_knitta_rapport.R` renderar rapporten med `knitta_webbrapport()` (inte med Knit-knappen), och `analysrapport_publicera()` publicerar den.
 - **Dokumentationsportaler** skapas med `webbsida_med_portal_skapa_med_github_repo()` och renderas på servern vid varje deploy. Nya sidor i en befintlig portal (t.ex. `dokumentation`) skapas med `dokumentation_sida_skapa()`, som säkerställer rätt filnamn och struktur.
-- **Shinyappar** har sitt eget flöde (`shinyapp_publicera()` m.fl.), dokumenterat separat.
+- **Interaktiva rapporter** (Shinyappar) har sitt eget flöde (`shinyapp_publicera()` m.fl.), dokumenterat separat.
+- **Pdf-rapporter** publiceras genom att pdf-filen läggs i `pdf/` i repot `pdf-rapporter` och pushas till `main`.
 - Varje server har en **landningssida** som automatiskt listar allt publicerat, regenererad vid varje deploy och nattligt via cron. Genereringslogiken ligger i repot `landningssida` och publiceras med `rddeploy::landningssida_publicera()`.
 - Vem som helst kan styra **synlighet**, **ikon** och **beskrivningstext** per app/rapport i **Adminportalen** — inget R-skript eller SSH krävs. Samma sak går att skripta med paketet `rdadminportal` (`landningssida_exkludera()`/`landningssida_ikoner_koppla()`/`landningssida_beskrivning_koppla()` m.fl.) för den som vill ändra flera poster i rad.
 - Djupare infrastrukturdokumentation (deploy-pipeline, serverskript, `adminportal-lyssnare`-tjänsten) kräver nyckelbaserad SSH och är bara relevant för dem som administrerar servrarna.

@@ -50,7 +50,7 @@ Beroende `rd*`-paket installeras automatiskt av `remotes` — behöver du t.ex. 
 | Hämta och lagra GTFS-trafikdata, förbereda data för r5r | [`rdgtfs`](#rdgtfs) |
 | Köra en Shiny-app i drift: databas, lösenord, telemetri | [`rdshinyappar`](#rdshinyappar) |
 | Bygga en PowerPoint-presentation från diagram i Region Dalarnas mall | [`rdppt`](#rdppt) |
-| Skapa/publicera Shinyappar, webbrapporter och portaler; jobba med git/GitHub | [`rddeploy`](#rddeploy) |
+| Skapa/publicera Shinyappar, analysrapporter och portaler; jobba med git/GitHub | [`rddeploy`](#rddeploy) |
 | Styra adminportalens flikar, köra schemalagda cron-jobb | [`rdadminportal`](#rdadminportal) |
 
 En enkel tumregel: **`rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar`** är de paket du använder *i* en analys eller app, och **`rdppt`** använder du när analysen ska bli en presentation. **`rddeploy`** och **`rdadminportal`** handlar istället om att *driftsätta och förvalta* det du byggt — de laddas inte in av `rd` (se nästa avsnitt, det gäller även `rdppt`) och behövs normalt bara när du faktiskt ska skapa, publicera eller administrera något.
@@ -341,11 +341,11 @@ Befintliga skript som bygger en "ppt-lista" (`initiera_ppt_df()`, `ppt_lista_fyl
 
 ## rddeploy — deploy, git och GitHub{#rddeploy}
 
-Samlar Region Dalarnas arbetsflöden för git och GitHub, publicering av webbrapporter och portaler, samt scaffolding och publicering av Shinyappar. Bygger på `gert`, `gh` och `gitcreds` istället för handrullade git-anrop.
+Samlar Region Dalarnas arbetsflöden för git och GitHub, publicering av analysrapporter och portaler, samt scaffolding och publicering av Shinyappar. Bygger på `gert`, `gh` och `gitcreds` istället för handrullade git-anrop.
 
 ::: {.callout-tip}
 ## Det här är inte samma sak som publicering
-Funktionerna i det här avsnittet flyttar kod mellan din dator och GitHub (`main`/`master`). De har inget att göra med att **publicera** en Shinyapp, webbrapport eller dokumentationsportal till en server — det täcks av [Publicering på webben](publicering.html) (`shinyapp_publicera()`, `analysrapport_publicera()` m.fl.).
+Funktionerna i det här avsnittet flyttar kod mellan din dator och GitHub (`main`/`master`). De har inget att göra med att **publicera** en Shinyapp, analysrapport eller dokumentationsportal till en server — det täcks av [Publicering på webben](publicering.html) (`shinyapp_publicera()`, `analysrapport_publicera()` m.fl.).
 :::
 
 ### Innan du börjar: konfiguration och autentisering{#innan-du-borjar-konfiguration-och-autentisering}
@@ -473,9 +473,15 @@ rddeploy::github_lagg_till_repo_fran_github(
 )
 ```
 
-### Publicering: Shinyappar, webbrapporter och portaler
+### Publicering: interaktiva rapporter, analysrapporter och portaler
 
-`rddeploy` innehåller också funktionerna för att skapa och publicera Shinyappar, webbrapporter och dokumentationsportaler (`shinyapp_publicera()`, `analysrapport_publicera()`, `webbsida_med_portal_skapa_med_github_repo()` m.fl.) — det täcks i sin helhet av [Publicering på webben](publicering.html), inte här.
+`rddeploy` innehåller också funktionerna för att skapa och publicera:
+
+- **interaktiva rapporter** (Shinyappar): `shinyapp_publicera()` m.fl.
+- **analysrapporter** (RMarkdown): `analysrapport_publicera()` m.fl.
+- **dokumentationsportaler**: `webbsida_med_portal_skapa_med_github_repo()` m.fl.
+
+Pdf-rapporter publiceras utan R-funktion, genom att pdf-filen pushas till repot `pdf-rapporter`. Flödena täcks i sin helhet av [Publicering på webben](publicering.html), inte här.
 
 ## rdadminportal — adminportal och serverdrift{#rdadminportal}
 
