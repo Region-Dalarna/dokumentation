@@ -1,5 +1,5 @@
 ---
-title: "Hantering av databaser – Postgres och PostGIS"
+title: "Databashantering med rdpostgres och rdgis"
 subtitle: "Hur vi arbetar med PostgreSQL och PostGIS i R, med paketen rdpostgres, rdgis och rdgeorouting"
 listing-description: "Hur vi arbetar med PostgreSQL- och PostGIS-databaser från R med rdpostgres, rdgis och rdgeorouting. Uppdelat i databashantering, läsning/skrivning av data samt beräkningar (isokroner och pendling)."
 author: "Samhällsanalys, Region Dalarna"

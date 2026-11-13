@@ -134,7 +134,7 @@ Anslutningar och administration mot Region Dalarnas Postgres-servrar — grunden
 - **Roller och rättigheter**: `postgres_anvandare_lagg_till()`, `postgres_roll_tilldela_till_anvandare()`, `postgres_grants_auto_skapa()` (automatiska grants via event triggers, så nya tabeller får rätt rättigheter utan manuellt steg).
 - **PostGIS och tabeller**: `postgis_aktivera_i_postgres_db()` (aktivera tillägget i en databas), `postgis_kopiera_tabell()` (kopiera inom en databas) och `postgis_flytta_tabell()` (flytta mellan scheman). Att skriva `sf`-objekt till PostGIS finns i [`rdgis`](#rdgis).
 
-  En fullständig genomgång av databashantering (användare, roller, behörigheter, läsa/skriva data) finns i [Hantering av databaser – Postgres och PostGIS](databaser_postgres_postgis.html).
+  En fullständig genomgång av databashantering (användare, roller, behörigheter, läsa/skriva data) finns i [Databashantering med rdpostgres och rdgis](databaser_postgres_postgis.html).
 - **Metadata**: `postgres_tabell_uppdaterades()` — när uppdaterades en tabell senast (jämför med `pxweb2_table_updated()` i [`pxweb2r`](pxweb2r.html#halla-ett-dataset-uppdaterat), som gör motsvarande mot SCB:s API istället för en egen databas).
 
 ```r
