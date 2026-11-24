@@ -28,7 +28,7 @@ Funktionerna finns i tre paket i [rdpaket](rdpaket.html), uppdelade efter vad de
 | Paket | Det här använder du det till |
 |-------|------------------------------|
 | `rdpostgres` | Uppkoppling, databaser, scheman, användare, roller och behörigheter, läsa och skriva tabeller (dataframes), metadata, PxWeb2-synkronisering, aktivera PostGIS samt kopiera och flytta tabeller |
-| `rdgis` | Läsa och skriva `sf`-objekt till PostGIS, hämta kartlager (`hamta_karta()`, `kartifiera()`), kopiera tabeller mellan databaser samt områdesnycklar |
+| `rdgis` | Läsa och skriva `sf`-objekt till PostGIS, hämta kartlager (`hamta_karta()`, `kartifiera()`) och bakgrundskartor (`hamta_bakgrundskarta()`), kopiera tabeller mellan databaser samt områdesnycklar |
 | `rdgeorouting` | Rumsliga beräkningar över vägnätet: isokroner och pendling |
 
 ```r
@@ -624,6 +624,43 @@ tatort_sf <- kartifiera(skickad_df = tatort_df, geom_nyckel = "tatortskod", tato
 | `geom_nyckel` | — | Namnet på kolumnen i `skickad_df` som innehåller regionkoder |
 | `tatortspunkter` | `TRUE` | Används bara om koderna tolkas som tätorter — `TRUE` ger punkter, `FALSE` ger polygoner |
 
+### Bakgrundskartor (topografi) {#bakgrundskartor}
+
+*Paket: `rdgis`*
+
+De topografiska bakgrundskartorna till våra kartor (vatten, skog, bebyggelse, vägar, järnväg och ortnamn) ligger färdigbyggda i `geodata`, så att kartfunktionerna slipper bearbeta Lantmäteriets rådata varje gång. Det finns två skalor, med varsitt schema:
+
+| Schema | Byggs ur | Täcker | Används av |
+|---|---|---|---|
+| `bakgrundskarta_dalarna` | `topografi_10` | länsskala (Dalarna) | `rddiagramkatalog::karta_gg_bakgrund_topografi()` |
+| `bakgrundskarta_sverige` | `topografi_1m` | hela Sverige, med lagret `grannlander` (Natural Earth) för grannländerna | `rddiagramkatalog::karta_gg_bakgrund_sverige()`, `karta_gg_kraftfalt_scb()` |
+
+Du som bara ritar kartor behöver sällan röra de här funktionerna — kartfunktionerna i `rddiagramkatalog` hämtar lagren själva och ger ett tydligt felmeddelande om bakgrundskartan inte är byggd. De används av den som ansvarar för geodatabasen.
+
+```r
+library(rdgis)
+
+bakgrundskarta_finns()                                   # finns lagren för Dalarna? (TRUE/FALSE)
+bakgrundskarta_finns(schema = "bakgrundskarta_sverige")  # och för hela Sverige?
+
+# lagren för ett utsnitt, som en namngiven lista med sf-objekt i SWEREF 99 TM (EPSG:3006)
+lager <- hamta_bakgrundskarta(region_vekt = "20")
+names(lager)   # vatten, skog, bebyggelse, vagar_stora, ...
+```
+
+**Bygga om (kräver administratörsuppkoppling).** `uppdatera_bakgrundskartor()` bygger om alla bakgrundskartor i rätt ordning och är avsedd att köras i det schemalagda skriptet efter att `topografi_10` och `topografi_1m` har uppdaterats. Delarna går också att köra var för sig:
+
+```r
+uppdatera_bakgrundskartor()                                  # Dalarna, Sverige och grannländer
+uppdatera_bakgrundskartor(sverige = FALSE, grannlander = FALSE)   # bara Dalarna
+
+skapa_bakgrundskarta_topografi(kalla_schema = "topografi_10")   # länsskala
+skapa_bakgrundskarta_topografi(kalla_schema = "topografi_1m")   # hela Sverige
+skapa_grannlander()                                          # lagret grannlander
+```
+
+Varje lager tas bort och byggs om helt, och skogslagret är det tyngsta steget (flera minuter). Ordningen är viktig: grannländerna beskärs mot lagret `utland` i Sverige-kartan, så `skapa_grannlander()` ska köras efter `topografi_1m`.
+
 ## Skriva data {#skriva-data}
 
 ### `postgres_df_till_postgrestabell()` — skriv dataframe till tabell
@@ -927,7 +964,7 @@ natverk <- pendling_natverk(pend)
 kraftfalt <- pendling_kraftfalt(pend)
 ```
 
-Kraftfälten som färdig leaflet-karta görs med `rddiagramkatalog::karta_lf_kraftfalt_scb()`.
+Kraftfälten som färdig karta görs med `rddiagramkatalog::karta_lf_kraftfalt_scb()` (leaflet) eller `rddiagramkatalog::karta_gg_kraftfalt_scb()` (statisk karta på bakgrundskartan över Sverige, stående eller med `liggande = TRUE`).
 
 # Övriga hjälpfunktioner
 
@@ -964,6 +1001,7 @@ logga_event("Uppdatering av befolkningstabellen lyckades",
 
 - Läsa, `rdpostgres`: `postgres_tabell_till_df()`, `postgres_meta()`, `postgres_hamta_oppnadata()`/`oppnadata_hamta()`
 - Läsa, `rdgis`: `postgis_postgistabell_till_sf()`, `hamta_karta()`, `hamta_karttabell()`, `kartifiera()`
+- Bakgrundskartor, `rdgis`: `bakgrundskarta_finns()`, `hamta_bakgrundskarta()`; byggs med `uppdatera_bakgrundskartor()`, `skapa_bakgrundskarta_topografi()`, `skapa_grannlander()` (kräver admin)
 - Skriva, `rdpostgres`: `postgres_df_till_postgrestabell()`, `postgres_databas_skriv_med_metadata()`
 - Skriva, `rdgis`: `postgis_sf_till_postgistabell()`, `postgis_databas_skriv_med_metadata()`
 - Kopiera/flytta: `postgis_kopiera_tabell()`, `postgis_flytta_tabell()` (`rdpostgres`), `postgis_kopiera_tabell_mellan_databaser()` (`rdgis`)

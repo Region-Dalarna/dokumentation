@@ -1,7 +1,7 @@
 ---
 title: "Rdppt"
 subtitle: "Bygg PowerPoint-presentationer från diagram i Region Dalarnas mall med paketet rdppt"
-listing-description: "Genomgång av paketet rdppt: hur du bygger en presentation med ppt_ny(), ppt_lagg_till_slide() och ppt_spara(), lägger in diagram från rddiagramkatalog per region, skriver anteckningar (även en text per region), använder färdiga slides från en slides-bank, ställer in mall och stil en gång med options() och sparar samma presentation för flera personer."
+listing-description: "Genomgång av paketet rdppt: hur du bygger en presentation med ppt_ny(), ppt_lagg_till_slide() och ppt_spara(), lägger in diagram från rddiagramkatalog per region, skriver anteckningar (även en text per region), lägger in rapportsidan med våra interaktiva rapporter, analysrapporter och pdf-rapporter, använder färdiga slides från en slides-bank, ställer in mall och stil en gång med options(), stänger av meddelandet om manuella datakällor och sparar samma presentation för flera personer."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -44,7 +44,7 @@ ppt_ny("Arbetsmarknad och befolkning i Dalarna") |>
   ppt_spara("arbetsmarknad_befolkning.pptx")
 ```
 
-Det ger en titelsida, ett diagram per region, en sida med slutsatser, en sida med våra rapporter och en avslutsbild.
+Det ger en titelsida, ett diagram per region, en sida med slutsatser, en sida med våra rapporter och en avslutsbild. I konsolen skrivs det ut vad som händer på vägen: att presentationen påbörjats, hur många diagram varje funktion gav (`...: 1 diagram tillagt.`), vad rapportsidan innehåller och, när filen sparats, hur lång tid det hela tog (`Det tog 3 min 12 s att skapa presentationen.`).
 
 ## Byggstenarna
 
@@ -52,7 +52,7 @@ Det ger en titelsida, ett diagram per region, en sida med slutsatser, en sida me
 |---|---|
 | `ppt_ny(rubrik)` | Startar presentationen och lägger titelsidan. |
 | `ppt_lagg_till_slide(layout, ...)` | En slide av den sort `layout` anger - se tabellen nedan. |
-| `ppt_spara(ppt, filnamn)` | Sparar filen (`oppna = TRUE` öppnar den direkt). |
+| `ppt_spara(ppt, filnamn)` | Sparar filen (`oppna = TRUE` öppnar den direkt). Är filen öppen i PowerPoint sparas den som `namn_2.pptx` i stället, se [Spara](#spara). |
 
 Du kan bygga i flera steg och titta på resultatet under tiden — skriver du ut objektet ser du vilka slides som ligger i presentationen:
 
@@ -77,11 +77,11 @@ anges):
 | `"text"` | Rubrik och text/punktlista | `rubrik`, `text` |
 | `"slutsatser"` | Rubriken "Slutsatser" och en punktlista | `text`*, `rubrik` |
 | `"avsnitt"` | En avsnittsrubrik | `rubrik`*, `text` |
-| `"rapporter"` | Aktuella rapporter från regiondalarna.se, hämtade automatiskt | - |
+| `"rapporter"` | Rapportsidan: interaktiva rapporter, analysrapporter och pdf-rapporter i tre spalter, hämtade automatiskt | `antal_rapporter` |
 | `"avslut"` | "Tack för mig!" med ditt namn och din e-post | `rubrik`, `text` |
 | `"befintlig"` | Färdiga slides från en pptx-fil | `fil`, `slide` |
 
-Alla utom `"befintlig"` tar också `anteckningar`. Anger
+Alla utom `"befintlig"` tar också `anteckningar`. Se [Rapportsidan](#rapportsidan) för vad `"rapporter"` gör. Anger
 du en parameter som sliden inte har får du ett felmeddelande som listar
 dem som gäller. Dessutom går varje layout i mallen att använda med sitt
 eget namn, t.ex. `layout = "Två innehållsdelar"` (se längre ned).
@@ -169,19 +169,64 @@ ppt <- ppt |>
 - En vanlig text utan namn används för alla regioner.
 - Namngivna anteckningar går bara för diagram, eftersom det är där en slide skapas per region.
 
-Texterna kan räknas fram med data, till exempel utveckling sedan första året eller andel i en åldersgrupp. Gör det i en vanlig funktion som returnerar en lista med en post per region, och anropa den före sliden:
+Texterna kan räknas fram med data, till exempel utveckling sedan första året eller andel i en åldersgrupp. Gör det som vanliga skriptrader före sliden, en post per region i en namngiven lista:
 
 ```r
-anteckn_arbetsfor_alder <- anteckningar_arbetsfor_alder(c("20", "2080", "2081"))
+region_vekt <- c("20", "2080", "2081")
+
+anteckn_arbetsfor_alder <- list()
+for (reg in region_vekt) {
+  # hämta data för regionen och räkna fram texten
+  bef <- pxweb2r::pxweb2_get_data(table = "TAB6645", query = list(Region = reg, ...))
+  # ...
+  anteckn_arbetsfor_alder[[reg]] <- c(glue("Utveckling år {forsta_ar}-{sista_ar}: ..."),
+                                      glue("Andel i arbetsför ålder: ..."))
+}
 # list("20" = c("Utveckling år 2010-2024: ...", ...), "2080" = ..., "2081" = ...)
 
 ppt <- ppt |>
   ppt_lagg_till_slide("diagram", funktion = rddiagramkatalog::diag_bef_inr_utr_en_aldersgrupp_scb,
-                      region_vekt = c("20", "2080", "2081"),
+                      region_vekt = region_vekt,
                       anteckningar = anteckn_arbetsfor_alder)
 ```
 
 Du ser då texterna i skriptet innan presentationen byggs, och en region utan data stoppar inte resten. Vill du hellre att texten räknas fram när diagrammet körs kan `anteckningar` vara en funktion av regionen, `anteckningar = \(region) mina_anteckningar(region)`, som körs en gång per region.
+
+## Rapportsidan{#rapportsidan}
+
+`ppt_lagg_till_slide("rapporter")` lägger in en sida med Samhällsanalys rapporter i tre spalter, med punktlistor:
+
+| Spalt | Hämtas från |
+|---|---|
+| **Interaktiva rapporter** | landningssidan för våra appar (shiny.regiondalarna.se), i den ordning de står där |
+| **Analysrapporter** | statistik- och rapportsidan på regiondalarna.se |
+| **Publicerade rapporter (pdf)** | samma sida på regiondalarna.se |
+
+Rapporterna hämtas automatiskt när presentationen sparas, så sidan är alltid aktuell utan att du ändrar något. Varje spalt fylls med så många rapporter som ryms; finns det fler står det som ett urval under spalten (*Urval – 8 av 12*), annars *Alla 7*. Längst ned finns tre länkblock: **Här finns alla våra rapporter** (landningssidan), **Samhällsanalys webbsida** och **Lyssna på vår podd** (Läget i Dalarna på Spotify).
+
+```r
+ppt_lagg_till_slide(ppt, "rapporter")                        # fyll varje spalt efter utrymme
+ppt_lagg_till_slide(ppt, "rapporter", antal_rapporter = 5)   # högst 5 per spalt
+```
+
+Går en källa inte att nå utelämnas just den spalten (med ett meddelande), och går ingen att nå hoppas hela sidan över. Listorna hämtas med `rapporter_rd_webb_hamta()` (analys- och pdf-rapporter) och `rapporter_rd_interaktiva_hamta()` (appar), som du också kan köra själv. Sidan använder mallens layout "Endast rubrik".
+
+## Spara{#spara}
+
+`ppt_spara()` sparar filen och skriver hur lång tid det tog att skapa presentationen, från `ppt_ny()` till sparad fil.
+
+- **Filen är öppen i PowerPoint?** Då sparas presentationen som `namn_2.pptx` (sedan `_3` och så vidare) och du får ett meddelande om det, i stället för att allt stoppas efter att diagrammen körts. Vill du hellre ha ett felmeddelande: `nytt_namn_om_last = FALSE`.
+- **Namn i filnamnet.** Anger du ett enda namn, `anv_uppgifter = "peter"`, får filnamnet också namnet (`utmaningar_peter.pptx`), på samma sätt som när du anger flera. Namn och e-post som lista (`list(namn = ..., epost = ...)`) ger inget tillägg.
+
+## Meddelandet om manuella datakällor
+
+Läser ett diagram en manuellt underhållen fil eller mapp (t.ex. Profets prognosfiler på G:) skriver funktionen ut en rad om att innehållet är en ögonblicksbild och inte en live-hämtning. Meddelandet är påslaget som standard. I ett skript som skapar en presentation, där du vet vilka källor som används, kan du stänga av det för presentationens diagram:
+
+```r
+ppt <- ppt_ny("Dalarnas utmaningar", visa_manuell_datakalla = FALSE)
+```
+
+Vill du stänga av det i alla skript, eller när du kör `diag_*()`-funktionerna direkt, gör du det med `rdverktyg::visa_manuell_datakalla_info(FALSE)` eller `options(rdverktyg.visa_manuell_datakalla = FALSE)`.
 
 ## Färdiga slides som du gjort för hand
 
@@ -241,6 +286,7 @@ ppt_ny("Rubrik", anv_uppgifter = list(namn = "Förnamn Efternamn",
 
 - **"layouten '...' finns inte i mallen"** — layoutnamnet är felstavat. Felmeddelandet listar de som finns; `ppt_mall_visa()` visar dem med innehåll.
 - **"Hittar inte pptx-filen"** — mallfilen går inte att nå. Kontrollera sökvägen och att G: är ansluten.
-- **"Kunde inte skriva presentationen … Är filen öppen i PowerPoint?"** — stäng filen och kör `ppt_spara()` igen.
+- **"OBS: … är öppen i PowerPoint eller låst. Sparade som …_2.pptx i stället."** — filen med det vanliga namnet var öppen. Stäng den och kör igen om du vill ha det ursprungliga namnet. Med `nytt_namn_om_last = FALSE` blir det i stället felet "Kunde inte skriva presentationen … Är filen öppen i PowerPoint?".
 - **En text syns inte på sliden** — layouten har ingen ledig ruta för den. Välj en layout med fler rutor (`ppt_mall_visa()`).
-- **Rapportsidan saknas** — rapporterna hämtas från regiondalarna.se när filen sparas. Går webbplatsen inte att nå hoppas sidan över.
+- **Rapportsidan saknas, eller en spalt saknas** — rapporterna hämtas från regiondalarna.se och shiny.regiondalarna.se när filen sparas. Går en webbplats inte att nå utelämnas dess spalt, och går ingen att nå hoppas sidan över. Meddelandet i konsolen säger vilken.
+- **Fel teckenstorlek i listor på rapportsidan** — uppdatera `rdppt` (0.0.0.9010 eller senare). Äldre versioner tappade teckenformateringen med vissa officer-versioner.

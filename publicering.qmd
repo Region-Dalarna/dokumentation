@@ -331,9 +331,12 @@ rddeploy::shinyapp_publicera("appnamn", target = "publik")
 
 # Avpublicera
 rddeploy::shinyapp_avpublicera("appnamn", target = "publik")
+
+# Flytta mellan publik och intern server
+rddeploy::shinyapp_flytta("appnamn")
 ```
 
-Precis som analysrapporterna triggar publiceringen en deploy via GitHub Actions, som deployar appen till `/srv/shiny-server/<appnamn>/` och regenererar landningssidan.
+Precis som analysrapporterna triggar publiceringen en deploy via GitHub Actions. Workflowen anropar serverns skript `shiny_deploy.sh` (versionshanterat i repot `serverdrift`), som kopierar appen till `/srv/shiny-server/<appnamn>/`, återställer paketmiljön, startar om *appens* R-processer med `restart.txt` (inte hela Shiny Server) och regenererar landningssidan och app-listan. Avpublicering sköts på motsvarande sätt av `shiny_avpublicera.sh`. Ändras mallen för workflowen kan befintliga appar uppdateras på en gång med `rddeploy::shinyapp_uppdatera_workflows()` — se Shiny-dokumentationen.
 
 ## Dokumentationsportaler{#dokumentationsportaler}
 
@@ -476,12 +479,13 @@ Varje post får automatiskt en titel (hämtad från appens/rapportens egen kod, 
 
 ## Styra vad som visas på landningssidan{#styra-landningssida}
 
-Adminportalen (`samhallsanalys.ltdalarna.se/adminportal`) har fyra flikar:
+Adminportalen (`samhallsanalys.ltdalarna.se/adminportal`) har fem flikar:
 
 - **Appar och rapporter** — styr synlighet, ikon och beskrivning per app/rapport på landningssidan. Beskrivs i detalj nedan.
 - **Cron-jobb** — skapa, aktivera/avaktivera och ta bort schemalagda R-skript kopplade till en app eller rapport (t.ex. nattliga datauppdateringar). Jobben körs på servern via `cron`, med egen körlogg.
 - **Nedladdning** — översikt per app/rapport och server över filer som genererats åt besökare för nedladdning (t.ex. exporterade rapporter eller dataset). Visar filstorlekar och låter dig radera enskilda filer eller hela nedladdningsmappen för en post, samt trigga en manuell synk om den nattliga körningen missat något.
-- **Statistik** — besöksstatistik per app: antal sessioner, flikbesök och aktivitet över tid (veckodag × timme), hämtat från telemetridata som apparna själva rapporterar in (se `rdshinyappar`s telemetri-funktioner i Shiny-dokumentationen).
+- **Statistik** — besöksstatistik per app: antal sessioner (för vald period, som standard de senaste två veckorna), flikbesök och aktivitet över tid (veckodag × timme), hämtat från telemetridata som apparna själva rapporterar in (se `rdshinyappar`s telemetri-funktioner i Shiny-dokumentationen). Under *Telemetritäckning* syns vilka appar som saknar telemetri; appar som medvetet är undantagna kan markeras och döljs då som standard.
+- **Driftstatus** — hur servrarna och apparna mår, med tre delflikar: *Översikt* (statuslampor per server: en hälsokontroll av varje app, servermått som disk, minne och certifikat, nätverkets status, cron-jobb och antal appfel senaste dygnet), *Larm* (driftvaktens inställningar och status; vakten skickar larm till Teams vid avbrott, appar som inte startar eller att något tystnat) och *Loggar* (appars loggar och Shiny Servers serverlogg, nätverkstestets körningar och de vanligaste felmeddelandena per app). Fliken är till för dem som förvaltar servrarna.
 
 Resten av det här avsnittet handlar om fliken **"Appar och rapporter"**, eftersom den är direkt kopplad till landningssidans innehåll.
 
@@ -518,7 +522,7 @@ Funktionen:
 5. Utesluter allt som är manuellt dolt, plus vissa alltid-exkluderade tekniska mappar (`.renv-cache` m.fl.).
 6. Skriver den färdiga `index.html` till serverns webbrot.
 
-Genereringen körs automatiskt som sista steg i varje deploy (av vad som helst — en app, en rapport, eller landningssidelogiken själv), och nattligt via cron som skyddsnät. Ändringar du gör i Adminportalen (nedan) regenererar dessutom direkt på den interna servern; på den publika sker det inom några sekunder via en bakgrundstjänst, se [Serverside-komponenter](#serverside-komponenter).
+Genereringen körs automatiskt som sista steg i varje deploy (av vad som helst — en app via `shiny_deploy.sh`, en rapport, eller landningssidelogiken själv), och nattligt via cron som skyddsnät. Ändringar du gör i Adminportalen (nedan) regenererar dessutom direkt på den interna servern; på den publika sker det inom några sekunder via en bakgrundstjänst, se [Serverside-komponenter](#serverside-komponenter).
 
 :::{.callout-important}
 ## Två oberoende kopior har funnits — numera bara en
@@ -575,7 +579,11 @@ För fullständighetens skull — så här hänger delarna ihop på servern:
 | Adminportalen | Shiny-app på RP0003 | Webbgränssnitt mot databasen ovan (`rdadminportal`-paketet) |
 | `adminportal-lyssnare.service` | systemd-tjänst på wfalmitvs978 (publika servern) | Lyssnar på databasändringar (Postgres `LISTEN`/`NOTIFY`) och kör om genereringen inom några sekunder. Finns bara på den publika servern — på RP0003 kör Adminportalen om genereringen direkt, lokalt, eftersom den redan kör där |
 | `hantera_ikon.sh` | `/usr/local/bin/` på RP0003 | Lokalt sudo-anrop som Adminportalen (som redan kör på RP0003) använder för att läsa interna ikonkopplingar — motsvarande för publik sker via databasen direkt |
-| `adminshiny.kommando` | Postgres-tabell | Kommandokö för engångsåtgärder på publika servern som inte är rena tillståndsändringar (t.ex. ta bort en nedladdningsfil) — plockas upp av lyssnartjänsten |
+| `adminshiny.kommando` | Postgres-tabell | Kommandokö för engångsåtgärder på publika servern som inte är rena tillståndsändringar (t.ex. ta bort en nedladdningsfil, eller hämta loggar och status åt fliken Driftstatus) — plockas upp av lyssnartjänsten |
+| `shiny_deploy.sh`, `shiny_avpublicera.sh` | `/usr/local/bin/` på båda servrarna, ur `serverdrift` | Deploy- och avpubliceringsmotorn som Shinyappars workflows anropar: kopiera/ta bort appen, `restart.txt`, landningssida och app-lista |
+| `apptest.sh` | `/usr/local/bin/` på båda servrarna, körs av `shiny`s crontab | Provar varje Shiny-app mot den lokala Shiny Servern och loggar HTTP-status och svarstid (provar om efter 20 s vid 000/502/503, så att en omstart av servern inte ger falskt larm). Underlag för lamporna i Driftstatus |
+| `natverkstest.sh`, `vaktpuls.R` | `/usr/local/bin/` på wfalmitvs978 | Nätverkstest (internet och databas) respektive kontroll av att driftvakten fortfarande kör. Underlag för Driftstatus |
+| Driftvakten | Adminportalens `cron/driftvakt.R` på RP0003 | Läser statusen och skickar larm till Teams |
 
 Repot `serverdrift` (se [separat README](https://github.com/Region-Dalarna/serverdrift)) dokumenterar hur `adminportal-lyssnare.service` och övrig delad serverinfrastruktur sätts upp och installeras.
 

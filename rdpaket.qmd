@@ -1,7 +1,7 @@
 ---
 title: "rdpaket"
 subtitle: "Region Dalarnas R-paket: vilket paket använder jag till vad?"
-listing-description: "Pedagogisk genomgång av paketen i Region-Dalarna/rdpaket, ett i taget: vad varje paket gör, hur de skiljer sig åt och hur man kommer igång med det man faktiskt behöver. Täcker rd, rdverktyg, rddiagram, rdgis, rdpostgres, rdgeorouting, rdgtfs, rdshinyappar, rdppt, rddeploy (inklusive GitHub-funktionerna) och rdadminportal."
+listing-description: "Pedagogisk genomgång av paketen i Region-Dalarna/rdpaket, ett i taget: vad varje paket gör, hur de skiljer sig åt och hur man kommer igång med det man faktiskt behöver. Täcker rd, rdverktyg, rdhamtadata, rddiagram, rddiagramkatalog, rdgis, rdpostgres, rdgeorouting, rdgtfs, rdshinyappar, rdppt, rddeploy (inklusive GitHub-funktionerna) och rdadminportal."
 author: "Samhällsanalys, Region Dalarna"
 date: last-modified
 lang: sv
@@ -43,7 +43,9 @@ Beroende `rd*`-paket installeras automatiskt av `remotes` — behöver du t.ex. 
 |---|---|
 | Ladda alla analyspaket på en gång | [`rd`](#rd) (paraplypaket) |
 | Allmänna hjälpfunktioner: text, filer, SCB-/regionhämtning | [`rdverktyg`](#rdverktyg) |
+| Hämta rådata som kräver mer än ett enkelt API-anrop (befolkningsprognoser, pendling) | [`rdhamtadata`](#rdhamtadata) |
 | Rita diagram i Region Dalarnas diagramprofil | [`rddiagram`](#rddiagram) |
+| Ta ett färdigt diagram eller en färdig karta (en funktion per diagram) | [`rddiagramkatalog`](#rddiagramkatalog) |
 | Hämta kartdata, jobba med geometrier, läsa GIS-filer | [`rdgis`](#rdgis) |
 | Läsa/skriva Postgres-databaser, hantera roller och rättigheter | [`rdpostgres`](#rdpostgres) |
 | Beräkna restider, isokroner eller pendlingsanalyser (pgRouting) | [`rdgeorouting`](#rdgeorouting) |
@@ -53,11 +55,11 @@ Beroende `rd*`-paket installeras automatiskt av `remotes` — behöver du t.ex. 
 | Skapa/publicera Shinyappar, analysrapporter och portaler; jobba med git/GitHub | [`rddeploy`](#rddeploy) |
 | Styra adminportalens flikar, köra schemalagda cron-jobb | [`rdadminportal`](#rdadminportal) |
 
-En enkel tumregel: **`rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar`** är de paket du använder *i* en analys eller app, och **`rdppt`** använder du när analysen ska bli en presentation. **`rddeploy`** och **`rdadminportal`** handlar istället om att *driftsätta och förvalta* det du byggt — de laddas inte in av `rd` (se nästa avsnitt, det gäller även `rdppt`) och behövs normalt bara när du faktiskt ska skapa, publicera eller administrera något.
+En enkel tumregel: **`rdverktyg`, `rdhamtadata`, `rddiagram`, `rddiagramkatalog`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar`** är de paket du använder *i* en analys eller app, och **`rdppt`** använder du när analysen ska bli en presentation. **`rddeploy`** och **`rdadminportal`** handlar istället om att *driftsätta och förvalta* det du byggt — de laddas inte in av `rd` (se nästa avsnitt, det gäller även `rdppt`) och behövs normalt bara när du faktiskt ska skapa, publicera eller administrera något.
 
 ## rd — paraplypaket{#rd}
 
-`rd` är ett paraplypaket utan egen kod: `library(rd)` drar in `rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar` i ett enda anrop.
+`rd` är ett paraplypaket utan egen kod: `library(rd)` drar in `rdverktyg`, `rddiagram`, `rdgis`, `rdpostgres`, `rdgeorouting`, `rdgtfs` och `rdshinyappar` i ett enda anrop. `rdhamtadata` och `rddiagramkatalog` ingår inte — `rddiagramkatalog` är ett stort paket med över hundra diagramfunktioner, och du använder normalt ett par av dem via `rddiagramkatalog::funktionsnamn()`.
 
 Precis som övriga paket i monorepot måste `rd` installeras innan det går att ladda:
 
@@ -73,7 +75,7 @@ library(rd)
 #            library(rdshinyappar)
 ```
 
-**`rddeploy` och `rdadminportal` ingår medvetet inte** — de är drift-/publiceringsverktyg som bara en liten andel skript faktiskt behöver, och laddas in explicit när de används:
+**`rddeploy` och `rdadminportal` ingår medvetet inte** — de är drift-/publiceringsverktyg som bara en liten andel skript faktiskt behöver, och laddas in explicit när de används (samma sak gäller `rdppt`):
 
 ```r
 library(rd)          # analyspaketen
@@ -90,10 +92,25 @@ Exempel på vad som finns:
 - **SCB-hämtning**: `pxweb2_get_data()` m.fl. (importerat från [`pxweb2r`](pxweb2r.html), se callout-rutan ovan) samt `manader_bearbeta_scbtabeller()` för SCB-specifik efterbearbetning.
 - **Excel**: `excelfil_spara_formaterad()`, `excel_xml_las_fil()`, `hamta_excel_dataset_med_url()`.
 - **CSV/zip**: `csv_fran_zipfiler_inlasning()`, `spara_som_csv_i_zip()`.
+- **Manuella datakällor**: `sakerstall_indatafil()` och `meddela_manuell_datakalla()` kontrollerar att en indatafil finns och skriver ut en rad om att filen eller mappen underhålls manuellt (en ögonblicksbild, inte en live-hämtning). Raden visas som standard; stäng av den med `visa_manuell_datakalla_info(FALSE)` eller `options(rdverktyg.visa_manuell_datakalla = FALSE)`, t.ex. överst i ett skript som skapar en presentation.
 
 ```r
 library(rdverktyg)
 kommuner_df <- hamtakommuner()
+```
+
+## rdhamtadata — datahämtning{#rdhamtadata}
+
+Rådata som kräver mer än ett enkelt API-anrop, hämtade i ett enhetligt format oavsett om de kommer från ett API eller från lokala filer. Utbrutet ur skripten i `Region-Dalarna/hamta_data`, som fasas ut i takt med att funktionerna flyttas hit. Paketet är **pågående** — fler hämtningar flyttas hit successivt.
+
+- **Befolkningsprognoser**: `hamta_befprognos_data()` (från SCB:s befolkningsprognos eller från lokala prognosfiler, t.ex. Profet- och Hallandsmappar), `hamta_befprognos_diff_data()` (förändring mellan start- och slutår) och `hamta_befprognos_riket_inr_utr_scb()` (riket, uppdelat på inrikes/utrikes födda).
+- **Pendling**: `hamta_pendling_rams_bas_scb()` (RAMS/BAS, SCB).
+
+Läser en funktion en lokal, manuellt underhållen prognosmapp skrivs en rad om att innehållet är en ögonblicksbild och kan vara inaktuellt. Den raden går att stänga av, se `rdverktyg` ovan. Diagramfunktionerna i [`rddiagramkatalog`](#rddiagramkatalog) använder `rdhamtadata` för sin data.
+
+```r
+library(rdhamtadata)
+prognos <- hamta_befprognos_data(region_vekt = "20")
 ```
 
 ## rddiagram — diagrammallar{#rddiagram}
@@ -107,18 +124,43 @@ ggplot2-baserade diagrammallar med Region Dalarnas gemensamma profil: färgskalo
 
 ```r
 library(rddiagram)
-SkapaStapelDiagram(data, x = "kommun", y = "varde")
+SkapaStapelDiagram(skickad_df = data, skickad_x_var = "kommun", skickad_y_var = "varde",
+                   output_mapp = "c:/temp/", filnamn_diagram = "mitt_diagram.png")
+```
+
+## rddiagramkatalog — färdiga diagram och kartor{#rddiagramkatalog}
+
+Där `rddiagram` ger dig *verktygen* för att rita diagram i vår profil, ger `rddiagramkatalog` dig *färdiga diagram*: en funktion per diagram, med hämtning av data, bearbetning, rubrik, källtext och färger inbyggda. Paketet har över hundra funktioner och ersätter successivt skripten i `Region-Dalarna/diagram`. Alla funktioner går att köra utan argument (Dalarna är standard), så det enklaste sättet att prova ett diagram är att anropa det.
+
+Prefixet visar vilken sorts resultat du får:
+
+| Prefix | Resultat |
+|---|---|
+| `diag_` | ggplot-diagram (png/svg) |
+| `karta_gg_` | statisk karta (ggplot, png/svg) |
+| `karta_lf_` | interaktiv karta (leaflet, html) |
+
+Suffixet anger källan där det behövs (`_scb`, `_kolada`, `_skolverket`, `_nms`, `_fohm` m.fl.). Funktionerna delar parametrar: `region_vekt` (kommun-, läns- eller landskoder), `tid_vekt`, `kon_klartext`, `diag_fargvekt`, `utmapp`, `skriv_diagramfil`, `returnera_data` och `returnera_figur`. Konventionerna står i `KONVENTIONER.md` i paketmappen.
+
+- **Hitta rätt diagram**: `sok_diagram("pendling")` söker bland funktionerna, och `diagramkatalog_utforska()` är ett RStudio-tillägg där du söker, ändrar parametrar, ser diagrammet, kopierar koden eller skriver diagrammet till fil.
+- **Kartor**: bland annat `karta_gg_kraftfalt_scb()` (kraftfält kring lokala arbetsmarknadscentrum, med `liggande = TRUE` för en liggande bild), `karta_lf_kraftfalt_scb()`, `karta_lf_pendlingsfloden_scb()`, `karta_gg_nettopendling_kommun_scb()` och bakgrundskartorna `karta_gg_bakgrund_topografi()` (Dalarna) och `karta_gg_bakgrund_sverige()` (Sverige eller flera län, ur Topografi 1M). Bakgrundskartorna kräver åtkomst till geodatabasen, se [`rdgis`](#rdgis).
+- **I en presentation**: diagramfunktionerna körs direkt av [`rdppt`](#rdppt), som lägger in diagrammen per region.
+
+```r
+rddiagramkatalog::sok_diagram("befolkning")
+rddiagramkatalog::diag_befolkningsprognos_profet_scb(region_vekt = "20")
 ```
 
 ## rdgis — GIS-verktyg{#rdgis}
 
 Kartdata, geometri och allt som flyttar `sf`-data till och från PostGIS — för analysarbete som inte kräver ruttberäkning över ett vägnät (se [`rdgeorouting`](#rdgeorouting) för det).
 
-- **Kartdata**: `hamta_karta()` — hämtar kartdata ur geodatabasen.
+- **Kartdata**: `hamta_karta()` — hämtar kartdata ur geodatabasen, `hamta_karttabell()` visar vilka kartlager som finns och `kartifiera()` kopplar ett dataset till rätt lager utifrån regionkodernas längd.
 - **sf till och från PostGIS**: `postgis_postgistabell_till_sf()`, `postgis_sf_till_postgistabell()` (skriv ett `sf`-objekt till en tabell), `postgis_databas_skriv_med_metadata()` (samma, men loggar i `metadata.uppdateringar`), `postgis_kopiera_tabell_mellan_databaser()` och `postgis_tabell()` (en referens till en tabell som funktioner kan läsa vid behov).
 - **Områdesnycklar**: `postgis_skapa_omradesnyckel_tabell_vy()` (koppla statistikrutor till områdespolygoner) och `postgis_omradesnyckel_exportera_till_mikrodb()`.
 - **Geometri**: `st_centroid_within_geo()` (centroid garanterat inuti polygonen, till skillnad från `sf::st_centroid()`), `skapa_linje_langs_med_punkter()`, `st_largest_ring()`.
 - **GIS-filer ur zip-arkiv**: `las_gisfil_fran_zipfil_via_sokvag()`, `las_gisfil_fran_zipfil_via_url()`.
+- **Bakgrundskartor**: topografiska bakgrundskartor byggs i geodatabasen och hämtas därifrån. `skapa_bakgrundskarta_topografi()` bygger lagren (för Dalarna, eller för hela Sverige ur Topografi 1M), `uppdatera_bakgrundskartor()` bygger om alla, `skapa_grannlander()` lägger till grannländerna, och `bakgrundskarta_finns()` och `hamta_bakgrundskarta()` används av kartfunktionerna i [`rddiagramkatalog`](#rddiagramkatalog). Se [Databashantering i Postgres och PostGIS](databaser_postgres_postgis.html).
 
 ```r
 library(rdgis)
@@ -148,7 +190,7 @@ Bygger och kör pgRouting-grafer av vägnätet (NVDB) för restids-, avstånds- 
 
 - **Bygga grafen**: `pgrouting_tabell_till_pgrgraf()`, `pgrouting_installera_i_postgis_db()`.
 - **Isokroner**: `postgis_isokroner_bil()`, `postgis_isokroner_cykel()`, `postgis_isokroner_gang()`, `postgis_isokroner_elcykel()`.
-- **Pendlingsanalyser**: `pendling_natverk()` (pendlingsnätverk), `pendling_kraftfalt()` (kraftfält), `pendling_ruta()`/`pendling_ruta_karta()` (in-/utpendling på ruta). Nätverket och kraftfälten körs mot databasen `ruttanalyser` och bilnätet `grafer.nvdb_bil_adresser`; tätorterna hämtas ur `karta.tatortspunkter`. Kraftfälten som karta (leaflet) görs med `rddiagramkatalog::karta_lf_kraftfalt_scb()`.
+- **Pendlingsanalyser**: `pendling_natverk()` (pendlingsnätverk), `pendling_kraftfalt()` (kraftfält), `pendling_ruta()`/`pendling_ruta_karta()` (in-/utpendling på ruta). Nätverket och kraftfälten körs mot databasen `ruttanalyser` och bilnätet `grafer.nvdb_bil_adresser`; tätorterna hämtas ur `karta.tatortspunkter`. Kraftfälten som karta görs med `rddiagramkatalog::karta_lf_kraftfalt_scb()` (leaflet) eller `rddiagramkatalog::karta_gg_kraftfalt_scb()` (statisk, stående eller liggande).
 
 :::{.callout-note}
 ## Var finns PostGIS-funktionerna?
@@ -157,7 +199,7 @@ Funktionerna för att skriva `sf` till PostGIS, kopiera tabeller, områdesnyckla
 
 ```r
 library(rdgeorouting)
-isokron_sf <- postgis_isokroner_bil(punkt_sf, minuter = c(10, 20, 30))
+isokron_sf <- postgis_isokroner_bil(punkter_sf = punkt_sf, intervall_varden = c(10, 20, 30))   # minuter
 ```
 
 ## rdgtfs — GTFS-verktyg{#rdgtfs}
@@ -167,10 +209,11 @@ Hämtning, normalisering och lagring av GTFS-trafikdata (kollektivtrafikens tidt
 - **Hämta och validera**: `hamta_gtfs_data()`, `gtfs_validera()`, `gtfs_rensa_for_db()`.
 - **Geografisk filtrering**: `gtfs_filtrera_geografiskt()` — t.ex. bara hållplatser/linjer inom Dalarnas län.
 - **Versionshantering i databasen**: `ladda_upp_till_databas()`, `versionshantering()`, `radera_gamla_versioner()` — flera GTFS-leveranser över tid kan jämföras istället för att skriva över varandra.
+- **Dalatrafik**: `lagg_till_alternativa_id_dalatrafik()` lägger till alternativa ID-kolumner för hållplatser.
 
 ```r
 library(rdgtfs)
-gtfs <- hamta_gtfs_data(operator = "dalatrafik")
+gtfs <- hamta_gtfs_data(gtfs_dataset = "20")   # länskod (Dalarna), operatörskod eller "sweden_3"
 ```
 
 ## rdshinyappar — runtime-hjälpare för Shinyappar{#rdshinyappar}
@@ -188,7 +231,7 @@ con <- uppkoppling_db()   # från rdpostgres, som rdshinyappar bygger på
 
 ## rdppt — PowerPoint-presentationer{#rdppt}
 
-Bygger en `.pptx` från diagram i Region Dalarnas presentationsmall, med några rader kod i stället för kopiera-och-klistra i PowerPoint. Du börjar med `ppt_ny()`, lägger till slides med `ppt_lagg_till_slide()` (diagram per region, bilder, text, slutsatser, rapporter, färdiga slides, avslut) och sparar med `ppt_spara()`. `rdppt` ingår inte i `rd` — ladda det själv med `library(rdppt)`.
+Bygger en `.pptx` från diagram i Region Dalarnas presentationsmall, med några rader kod i stället för kopiera-och-klistra i PowerPoint. Du börjar med `ppt_ny()`, lägger till slides med `ppt_lagg_till_slide()` (diagram per region, bilder, text, slutsatser, rapporter, färdiga slides, avslut) och sparar med `ppt_spara()`, som också skriver hur lång tid det tog. `rdppt` ingår inte i `rd` — ladda det själv med `library(rdppt)`. Rapportsidan (`"rapporter"`) har tre spalter med våra interaktiva rapporter, analysrapporter och pdf-rapporter, hämtade automatiskt, och en rad om podden.
 
 ```r
 library(rdppt)
@@ -201,7 +244,7 @@ ppt_ny("Arbetsmarknad och befolkning i Dalarna") |>
   ppt_spara("arbetsmarknad_befolkning.pptx")
 ```
 
-Hela genomgången — sorter av slides, inställningar med `options()`, anteckningar (även en text per region), färdiga slides, mallar och vanliga fel — finns på sidan [Rdppt](rdppt.html).
+Hela genomgången — sorter av slides, rapportsidan, inställningar med `options()`, anteckningar (även en text per region), färdiga slides, att spara för flera personer, mallar och vanliga fel — finns på sidan [Rdppt](rdppt.html).
 
 ## rddeploy — deploy, git och GitHub{#rddeploy}
 
@@ -341,7 +384,7 @@ rddeploy::github_lagg_till_repo_fran_github(
 
 `rddeploy` innehåller också funktionerna för att skapa och publicera:
 
-- **interaktiva rapporter** (Shinyappar): `shinyapp_publicera()` m.fl.
+- **interaktiva rapporter** (Shinyappar): `shinyapp_skapa_med_github_repo()`, `shinyapp_publicera()`, `shinyapp_avpublicera()`, `shinyapp_flytta()` och `shinyapp_uppdatera_workflows()` (för att föra ut ändrade deploy-mallar till befintliga appar).
 - **analysrapporter** (RMarkdown): `analysrapport_publicera()` m.fl.
 - **dokumentationsportaler**: `webbsida_med_portal_skapa_med_github_repo()` m.fl.
 
@@ -354,6 +397,8 @@ Funktioner för Adminportalens flikar samt de serverskript som synkar Shiny-land
 - **Appar och rapporter** (synlighet): `landningssida_exkludera()`, `landningssida_inkludera()`, `landningssida_lista_exkluderade()`.
 - **Ikoner**: `landningssida_ikoner_koppla()`, `landningssida_ikoner_lista()`.
 - **Beskrivningar**: `landningssida_beskrivning_koppla()`, `landningssida_beskrivning_lista()`.
+- **Ordning**: `landningssida_ordning_lista()`, `landningssida_ordning_satt()`, `landningssida_ordning_aterstall()`.
+- **Översikt och synk**: `landningssida_app_oversikt()` (alla appar med exkluderingsstatus och ikon), `landningssida_synka_app_lista()` och `landningssida_synka_app_lista_nu()`.
 - **Nedladdning**: `landningssida_nedladdning_lista()`, `landningssida_nedladdning_ta_bort_fil()`.
 - **Cron-jobb**: `kor_cron_jobb()` — exekverar ett schemalagt datauttag.
 
@@ -361,7 +406,7 @@ Samma funktionalitet nås normalt via Adminportalens webbgränssnitt (`samhallsa
 
 ```r
 library(rdadminportal)
-landningssida_exkludera("brott", server = "publik")
+landningssida_exkludera(target = "publik", namn = "brott")
 ```
 
 ## Sammanfattning
@@ -370,13 +415,15 @@ landningssida_exkludera("brott", server = "publik")
 |---|---|
 | `rd` | Ladda alla analyspaket på en gång |
 | `rdverktyg` | Allmänna hjälpfunktioner: text, filer, SCB-/regionhämtning |
+| `rdhamtadata` | Datahämtning: befolkningsprognoser, pendling |
 | `rddiagram` | Diagram i Region Dalarnas profil |
+| `rddiagramkatalog` | Färdiga diagram och kartor, en funktion per diagram |
 | `rdgis` | Kartdata, geometri, `sf` till/från PostGIS, områdesnycklar |
 | `rdpostgres` | Postgres-anslutningar, tabeller, roller/rättigheter, PostGIS-tillägg |
 | `rdgeorouting` | pgRouting: restider, isokroner, pendling |
 | `rdgtfs` | GTFS-trafikdata, versionshantering, r5r-förberedelse |
 | `rdshinyappar` | Runtime-hjälpare i en körande Shiny-app |
-| `rdppt` | PowerPoint-presentationer från diagram |
+| `rdppt` | PowerPoint-presentationer från diagram, med rapportsida |
 | `rddeploy` | git/GitHub, scaffolding och publicering |
 | `rdadminportal` | Adminportalens flikar, cron-jobb, serverdrift |
 | `pxweb2r` (eget repo) | Hämta statistik från en PxWeb API v2 |
