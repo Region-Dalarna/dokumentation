@@ -268,6 +268,27 @@ ppt_ny("Demografi i Dalarna") |>
 
 Vilka slides en fil innehåller, och vilket nummer de har, ser du med `ppt_befintlig_visa(fardiga)` (en lista med rubrik och text) eller `ppt_forhandsvisa(fardiga)` (en bild av varje slide, i RStudios Viewer). Med `ppt_befintlig_visa(fardiga, oppna = TRUE)` öppnas filen också i PowerPoint. Flera slides lägger du in som en vektor, t.ex. `slide = c(1:2, 4)`. Filen ska vara gjord utifrån samma mall som resten av presentationen, färdiga slides kan bara hämtas från **en** fil per presentation, och slides du inte lägger in med `"befintlig"` kommer inte med.
 
+## Regioner, mappar och logg i skriptet
+
+Du behöver inte skapa mappar, bygga regiontexter eller sätta ihop loggfilens namn själv. Paketet gör det:
+
+```r
+region_vekt <- c("20", "21", "2080")
+
+ppt <- ppt_ny(
+  "Läget i <regions> kommuner",      # <regions> blir "Dalarnas, Gävleborgs och Faluns"
+  region_vekt = region_vekt,
+  loggfil = TRUE                     # loggfil i utskriftsmappen med automatiskt namn
+) |>
+  ppt_lagg_till_slide("slutsatser", rubrik = "Slutsatser för <region>", text = "...")
+```
+
+- **`region_vekt` i `ppt_ny()`** gör att `<region>` ("Gävleborg, Falun och Dalarna", Dalarna sist) och `<regions>` (genitiv, i den ordning du angett) byts mot regionernas namn i huvudrubrik, underrubrik och i `rubrik`, `text` och `anteckningar` på slidesen. Det är *inte* samma sak som `region_vekt` i `ppt_lagg_till_slide()`, som styr vilka diagram som körs.
+- **`ppt_regioner(region_vekt)`** ger de koder och texter du annars skulle bygga för hand: `lan_koder`, `kommun_koder`, `namn`, `text`, `text_genitiv` och `filnamn`. De finns också som `ppt$regioner`.
+- **`loggfil = TRUE`** ger en loggfil i utskriftsmappen som heter presentationens namn, användaren och `_auto` om skriptet inte körs för hand (t.ex. schemalagt). Mappen skapas om den saknas. Du kan fortfarande ange en egen sökväg.
+- **Mapparna** för bilder och för den sparade filen skapas av paketet, så `skapa_mapp_om_den_inte_finns()` behövs inte. Utan `bildmapp` används en temporär mapp.
+- **Användaren** på titel- och avslutssidan är den inloggade om du inte anger `anv_uppgifter`, så rader med `anv_fornamn_efternamn_hamta()` behövs inte heller.
+
 ## Flera personer och logg
 
 En tom `region_vekt` (`character(0)`) hoppar över diagrammet. Ska samma presentation sparas för flera personer anger du dem i `ppt_spara(ppt, "filnamn.pptx", anv_uppgifter = c("peter", "jon"))` — diagrammen körs bara en gång, och varje person får en fil med sitt namn på titel- och avslutssidan. `ppt_ny(loggfil = ...)` loggar vilka diagram som hoppats över, och `ppt_ny(stil = list(titel_stlk = 54))` ändrar rubrikformateringen; båda går också att sätta med `options()` (`rdppt.loggfil`, `rdppt.stil`).
