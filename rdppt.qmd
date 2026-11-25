@@ -266,7 +266,30 @@ ppt_ny("Demografi i Dalarna") |>
   ppt_spara("demografi.pptx")
 ```
 
-Vilka slides en fil innehåller, och vilket nummer de har, ser du med `ppt_befintlig_visa(fardiga)` (en lista med rubrik och text) eller `ppt_forhandsvisa(fardiga)` (en bild av varje slide, i RStudios Viewer). Med `ppt_befintlig_visa(fardiga, oppna = TRUE)` öppnas filen också i PowerPoint. Flera slides lägger du in som en vektor, t.ex. `slide = c(1:2, 4)`. Filen ska vara gjord utifrån samma mall som resten av presentationen, färdiga slides kan bara hämtas från **en** fil per presentation, och slides du inte lägger in med `"befintlig"` kommer inte med.
+### Se vilka slides filen innehåller
+
+Numret på en slide behöver du för att kunna välja den med `slide = `. Det här visar vilka slides filen har:
+
+```r
+ppt_befintlig_visa(fardiga)                  # en tabell i konsolen
+ppt_befintlig_visa(fardiga, oppna = TRUE)    # tabellen, och filen öppnas i PowerPoint
+```
+
+Tabellen ser ut så här. Kolumnen `slide` är numret du anger i `ppt_lagg_till_slide("befintlig", slide = )`:
+
+```
+ slide rubrik                          text                          innehall               layout
+ 1     Dalastrategin 2030: Ett hål...  Ett klimatsmart Dalarna                              Rubrik och innehåll
+ 2                                     Vi kan inte fortsätta som...  3 bilder, 1 figurgrupp Rubrik och innehåll
+ 3     Pressklipp SKR om demografi                                   6 bilder               Endast rubrik
+ 4                                     Hur snabb behöver omställningen vara? 1 bild         Tom
+```
+
+- **`oppna = TRUE`** är det snabbaste sättet att se hur sliderna faktiskt ser ut: filen öppnas i det program som är kopplat till pptx-filer (PowerPoint).
+- **`ppt_forhandsvisa(fardiga)`** gör en bild av varje slide och visar dem som en översikt i RStudios Viewer, så att du ser dem utan att öppna filen. `ppt_befintlig_visa(fardiga, bilder = TRUE)` gör både tabellen och översikten. Bilderna görs med PowerPoint i bakgrunden, eller med LibreOffice. På datorer där PowerShell och skript är spärrade kan det hända att det inte går, och då visas ett felmeddelande med orsaken. Använd i så fall `oppna = TRUE` ovan.
+- Flera slides lägger du in som en vektor, t.ex. `slide = c(1:2, 4)` för slide 1, 2 och 4.
+
+Filen ska vara gjord utifrån samma mall som resten av presentationen, färdiga slides kan bara hämtas från **en** fil per presentation, och slides du inte lägger in med `"befintlig"` kommer inte med.
 
 ## Regioner, mappar och logg i skriptet
 
