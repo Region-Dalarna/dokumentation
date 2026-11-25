@@ -120,15 +120,34 @@ ppt <- ppt |>
 - Ger funktionen fel för en region hoppas den över med en varning och resten byggs ändå. Vill du hellre att det stannar: `stoppa_vid_fel = TRUE`.
 - Med `skriv_diagramfil = FALSE` läggs diagrammen in som redigerbar vektorgrafik i stället för bilder, så att färger och texter går att ändra i PowerPoint.
 
-### Parametrar med samma namn som i ppt_lagg_till_slide()
+### region_vekt: i anropet eller i funktionsparametrar?
 
-Har diagramfunktionen en parameter som heter likadant som en av `ppt_lagg_till_slide()`s egna, t.ex. `region_vekt` när du vill ge funktionen ett fast värde medan presentationen körs per region, anger du den i `funktionsparametrar`:
+`region_vekt` finns på två ställen, och de gör olika saker:
+
+- **`region_vekt = ` direkt i `ppt_lagg_till_slide()`** styr *hur många diagram som görs*. Diagramfunktionen körs en gång per region, och varje region får en egen slide. Det vill du när varje region ska ha sitt eget diagram.
+- **`funktionsparametrar = list(region_vekt = ...)`** ger diagramfunktionen en fast lista med regioner, och funktionen körs *en gång* med hela listan. Det vill du när diagrammet i sig jämför flera regioner, till exempel alla kommuner i länet i samma bild.
+
+| Du vill ha... | Skriv så här |
+|---|---|
+| ett diagram per kommun, en slide var | `region_vekt = c("2080", "2081")` |
+| ett diagram där kommunerna jämförs, en enda slide | `funktionsparametrar = list(region_vekt = hamtakommuner("20"))` |
 
 ```r
+# Ett diagram per kommun: tre slides
+ppt <- ppt |>
+  ppt_lagg_till_slide("diagram", funktion = rddiagramkatalog::diag_befolkningsprognos_profet_scb,
+                      region_vekt = c("2080", "2081", "2082"))
+
+# Ett jämförande diagram med alla kommuner i länet: en slide
 ppt <- ppt |>
   ppt_lagg_till_slide("diagram", funktion = rddiagramkatalog::diag_befprognos_diff_tot_per_region_scb,
-                      funktionsparametrar = list(region_vekt = hamtakommuner("20")))
+                      funktionsparametrar = list(region_vekt = hamtakommuner("20", TRUE, FALSE)),
+                      andel_istallet_for_antal = TRUE)
 ```
+
+Andra parametrar till diagramfunktionen, som `andel_istallet_for_antal` ovan, skriver du direkt i anropet. `funktionsparametrar` behövs bara för parametrar som heter likadant som en av `ppt_lagg_till_slide()`s egna, och i praktiken är det nästan alltid `region_vekt`.
+
+Tumregel: om diagramfunktionen tar *en* region i taget ska `region_vekt` stå i anropet. Om den tar *flera* regioner i samma diagram ska `region_vekt` stå i `funktionsparametrar`. Står `region_vekt` i anropet för ett jämförande diagram får du ett diagram per region i stället för ett med alla, och då är det fel ställe. Vill du köra per region men ändå ha en fast jämförelselista kan du kombinera: `region_vekt` i anropet styr vilka slides som görs, `funktionsparametrar` ger varje diagram dess jämförelsekommuner (använd `regionvariabel` om funktionens parameter för "den här regionen" heter något annat än `region_vekt`).
 
 Har du redan en bild eller ett ggplot-objekt använder du `layout = "bild"` (bilder måste vara png):
 
@@ -228,6 +247,8 @@ ppt <- ppt_ny("Dalarnas utmaningar", visa_manuell_datakalla = FALSE)
 
 Vill du stänga av det i alla skript, eller när du kör `diag_*()`-funktionerna direkt, gör du det med `rdverktyg::visa_manuell_datakalla_info(FALSE)` eller `options(rdverktyg.visa_manuell_datakalla = FALSE)`.
 
+Inställningen med `options()` gäller bara den R-session du kör. Vill du att den ska gälla varje gång R startar lägger du raden `options(rdverktyg.visa_manuell_datakalla = FALSE)` i din `.Rprofile` (`usethis::edit_r_profile()`); placeringen i filen spelar ingen roll. Då döljs meddelandet överallt, även om du skriver `visa_manuell_datakalla = TRUE` i `ppt_ny()`. Det du ser just nu får du med `getOption("rdverktyg.visa_manuell_datakalla", TRUE)`.
+
 ## Färdiga slides som du gjort för hand
 
 Vissa slides är svåra att skapa med kod. Gör dem i PowerPoint, spara under ett nytt namn och lägg in dem där du vill ha dem:
@@ -245,7 +266,7 @@ ppt_ny("Demografi i Dalarna") |>
   ppt_spara("demografi.pptx")
 ```
 
-Vilka slides en fil innehåller, och vilket nummer de har, ser du med `ppt_befintlig_visa(fardiga)` (en lista med rubrik och text) eller `ppt_forhandsvisa(fardiga)` (en bild av varje slide, i RStudios Viewer). Filen ska vara gjord utifrån samma mall som resten av presentationen, färdiga slides kan bara hämtas från **en** fil per presentation, och slides du inte lägger in med `"befintlig"` kommer inte med.
+Vilka slides en fil innehåller, och vilket nummer de har, ser du med `ppt_befintlig_visa(fardiga)` (en lista med rubrik och text) eller `ppt_forhandsvisa(fardiga)` (en bild av varje slide, i RStudios Viewer). Med `ppt_befintlig_visa(fardiga, oppna = TRUE)` öppnas filen också i PowerPoint. Flera slides lägger du in som en vektor, t.ex. `slide = c(1:2, 4)`. Filen ska vara gjord utifrån samma mall som resten av presentationen, färdiga slides kan bara hämtas från **en** fil per presentation, och slides du inte lägger in med `"befintlig"` kommer inte med.
 
 ## Flera personer och logg
 
